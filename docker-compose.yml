@@ -1,0 +1,46 @@
+version: '3.8'
+
+services:
+  #---------------------------------------------------------
+  # SQL Server (Versão Super Leve: Azure SQL Edge)
+  #---------------------------------------------------------
+  # Utilizamos a imagem do Azure SQL Edge, que é uma engine 
+  # do SQL Server 2019 super otimizada para IoT e ARM, mas 
+  # que roda perfeitamente em x64. Ele consome <500MB de RAM, 
+  # sendo drasticamente mais leve que o SQL Server Express/Developer.
+  #---------------------------------------------------------
+  db:
+    image: mcr.microsoft.com/azure-sql-edge:latest
+    container_name: sqlformys-db
+    restart: unless-stopped
+    ports:
+      - "1433:1433"
+    environment:
+      - ACCEPT_EULA=Y
+      - SA_PASSWORD=SqlFormys@12345
+      - MSSQL_PID=Developer
+    volumes:
+      - sqldata:/var/opt/mssql
+
+  #---------------------------------------------------------
+  # Backend API (Go)
+  #---------------------------------------------------------
+  api:
+    build:
+      context: ./back
+      dockerfile: Dockerfile
+    container_name: sqlformys-api
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    depends_on:
+      - db
+    environment:
+      - PORT=8080
+      # String de conexão pronta para uso (usando o alias 'db' do compose)
+      - DB_DRIVER=sqlserver
+      - DB_DSN=sqlserver://sa:SqlFormys@12345@db:1433?database=master
+      
+volumes:
+  sqldata:
+    name: sqlformys-sqldata
