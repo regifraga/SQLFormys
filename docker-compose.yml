@@ -39,7 +39,7 @@ services:
       - PORT=8080
       # String de conexão pronta para uso (usando o alias 'db' do compose)
       - DB_DRIVER=sqlserver
-      - DB_DSN=sqlserver://sa:SqlFormys@12345@db:1433?database=master
+      - DB_DSN=sqlserver://sa:SqlFormys@12345@db:1433?database=master&encrypt=disable
       
 volumes:
   sqldata:

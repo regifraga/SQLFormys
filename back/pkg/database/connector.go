@@ -5,9 +5,9 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	// Importar drivers necessários futuramente, ex:
-	// _ "github.com/lib/pq"
-	// _ "github.com/go-sql-driver/mysql"
+
+	// Driver do SQL Server
+	_ "github.com/microsoft/go-mssqldb"
 )
 
 // Connector gerencia a conexão com múltiplos tipos de banco de dados
