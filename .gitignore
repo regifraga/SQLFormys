@@ -8,6 +8,10 @@
 *.so
 *.dylib
 
+# Go compiled binaries (extensionless, e.g. back/api)
+back/api
+back/api~
+
 # Test binary, built with `go test -c`
 *.test
 
@@ -24,8 +28,12 @@ profile.cov
 go.work
 go.work.sum
 
-# env file
+# Env files — credenciais reais nunca devem ser versionadas
 .env
+.env.local
+.env.*.local
+# .env.example é permitido (contém apenas placeholders)
+!.env.example
 
 # Editor/IDE
 # .idea/
