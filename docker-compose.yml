@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   #---------------------------------------------------------
   # SQL Server (Versão Super Leve: Azure SQL Edge)
@@ -40,7 +38,7 @@ services:
       # String de conexão pronta para uso (usando o alias 'db' do compose)
       - DB_DRIVER=sqlserver
       - DB_DSN=sqlserver://sa:SqlFormys@12345@db:1433?database=master&encrypt=disable
-      
+
 volumes:
   sqldata:
     name: sqlformys-sqldata
