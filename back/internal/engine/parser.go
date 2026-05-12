@@ -19,10 +19,10 @@ type SQLParser struct {
 var (
 	// Matches --SERVER=10.123.43.126
 	serverRegex = regexp.MustCompile(`(?m)^--SERVER=(.*)$`)
-	
+
 	// Matches the properties block, including multiline content
 	propertiesRegex = regexp.MustCompile(`(?s)--<PROPERTIES>\r?\n(.*?)\r?\n--</PROPERTIES>`)
-	
+
 	// Matches --SELECT @?#FIELD:TYPE:SIZE:OP:LABEL
 	selectRegex = regexp.MustCompile(`--SELECT\s+@(\?)?(#)?([A-Za-z0-9_]+):([A-Za-z0-9_]+):(\d+):([^:]+):(.+)`)
 )
@@ -79,7 +79,7 @@ func ParseMetadata(sqlContent string) (*SQLParser, error) {
 // InjectValues takes the original SQL and user values, replaces the PROPERTIES block with SELECT injections
 func InjectValues(sqlContent string, values map[string]interface{}, fields []domain.Field) string {
 	var injections []string
-	
+
 	for _, field := range fields {
 		val, exists := values[field.Field]
 		if !exists || val == nil {
@@ -90,7 +90,7 @@ func InjectValues(sqlContent string, values map[string]interface{}, fields []dom
 
 		// Determine if value needs quotes based on Type
 		isNumeric := field.Type == "INT" || field.Type == "DECIMAL" || field.Type == "NUMERIC" || field.Type == "FLOAT"
-		
+
 		if isNumeric {
 			if valStr == "" {
 				valStr = "NULL"
