@@ -12,6 +12,22 @@ import (
 	"sqlformys/pkg/database"
 )
 
+// corsMiddleware adiciona os headers necessários para requisições cross-origin
+func corsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+
+		if r.Method == "OPTIONS" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+
 func main() {
 	// Carrega configurações
 	cfg := config.Load()
@@ -35,7 +51,7 @@ func main() {
 	router := handler.NewRouter()
 
 	fmt.Printf("Servidor iniciado na porta %s (Ambiente: %s)\n", cfg.Port, cfg.Environment)
-	if err := http.ListenAndServe(":"+cfg.Port, router); err != nil {
+	if err := http.ListenAndServe(":"+cfg.Port, corsMiddleware(router)); err != nil {
 		log.Fatalf("Erro ao iniciar o servidor: %v", err)
 	}
 }
