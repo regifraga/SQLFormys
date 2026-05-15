@@ -12,8 +12,6 @@ func NewRouter() *http.ServeMux {
 	mux := http.NewServeMux()
 
 	authHandler := NewAuthHandler()
-	projectHandler := NewProjectHandler()
-	formHandler := NewFormHandler()
 
 	// Inicializa o Motor de Queries Dinâmicas
 	connector := database.NewConnector()
@@ -28,11 +26,6 @@ func NewRouter() *http.ServeMux {
 	mux.HandleFunc("GET /api/projects", queryHandler.ListProjects)
 	mux.HandleFunc("GET /api/queries/{project}/{module}", queryHandler.GetMetadata)
 	mux.HandleFunc("POST /api/queries/{project}/{module}", queryHandler.ExecuteQuery)
-
-	// Rotas Estáticas Antigas (mantidas para compatibilidade se existirem)
-	mux.HandleFunc("POST /api/projects", projectHandler.Create)
-	mux.HandleFunc("GET /api/forms/{project_id}/{table}", formHandler.GetForm)
-	mux.HandleFunc("POST /api/forms/{project_id}/{table}/submit", formHandler.SubmitForm)
 
 	// Rota padrão para 404 (JSON)
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
