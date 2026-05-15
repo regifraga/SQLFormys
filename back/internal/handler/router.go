@@ -38,5 +38,10 @@ func NewRouter() *http.ServeMux {
 	mux.HandleFunc("GET /api/forms/{project_id}/{table}", formHandler.GetForm)
 	mux.HandleFunc("POST /api/forms/{project_id}/{table}/submit", formHandler.SubmitForm)
 
+	// Rota padrão para 404 (JSON)
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		respondWithError(w, http.StatusNotFound, "Rota não encontrada")
+	})
+
 	return mux
 }

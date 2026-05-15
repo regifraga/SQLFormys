@@ -26,7 +26,7 @@ func (h *QueryHandler) ListProjects(w http.ResponseWriter, r *http.Request) {
 
 	projects, err := h.svc.ListProjects(basePath)
 	if err != nil {
-		http.Error(w, "Erro ao listar projetos: "+err.Error(), http.StatusInternalServerError)
+		respondWithError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
@@ -40,13 +40,13 @@ func (h *QueryHandler) GetMetadata(w http.ResponseWriter, r *http.Request) {
 	basePath := "queries"
 
 	if project == "" || module == "" {
-		http.Error(w, "Os parâmetros project e module são obrigatórios", http.StatusBadRequest)
+		respondWithError(w, http.StatusBadRequest, "Os parâmetros project e module são obrigatórios")
 		return
 	}
 
 	metadata, err := h.svc.GetMetadata(basePath, project, module)
 	if err != nil {
-		http.Error(w, "Erro ao buscar metadados: "+err.Error(), http.StatusInternalServerError)
+		respondWithError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
@@ -60,20 +60,24 @@ func (h *QueryHandler) ExecuteQuery(w http.ResponseWriter, r *http.Request) {
 	basePath := "queries"
 
 	if project == "" || module == "" {
-		http.Error(w, "Os parâmetros project e module são obrigatórios", http.StatusBadRequest)
+		respondWithError(w, http.StatusBadRequest, "Os parâmetros project e module são obrigatórios")
 		return
 	}
 
 	// Payload enviado pelo frontend deve ser um objeto JSON ex: {"DT_INICIAL": "2026-04-01"}
 	var payload map[string]interface{}
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		http.Error(w, "Formato de payload inválido, experado JSON Object", http.StatusBadRequest)
+		respondWithError(w, http.StatusBadRequest, "Formato de payload inválido, esperado JSON Object")
 		return
 	}
 
-	results, err := h.svc.ExecuteQuery(r.Context(), basePath, project, module, payload, h.cfg.DBDriver, h.cfg.DBDsn)
+	results, finalSQL, err := h.svc.ExecuteQuery(r.Context(), basePath, project, module, payload, h.cfg.DBDriver, h.cfg.DBDsn)
 	if err != nil {
-		http.Error(w, "Erro ao executar query: "+err.Error(), http.StatusInternalServerError)
+		var debugQuery string
+		if h.cfg.Environment == "development" || h.cfg.Environment == "local" {
+			debugQuery = finalSQL
+		}
+		respondWithError(w, http.StatusInternalServerError, err.Error(), debugQuery)
 		return
 	}
 

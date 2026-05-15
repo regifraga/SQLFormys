@@ -77,16 +77,16 @@ func (s *queryService) GetMetadata(basePath, project, module string) (domain.Met
 	return parser.Fields, nil
 }
 
-func (s *queryService) ExecuteQuery(ctx context.Context, basePath, project, module string, payload map[string]interface{}, defaultDriver, defaultDsn string) ([]map[string]interface{}, error) {
+func (s *queryService) ExecuteQuery(ctx context.Context, basePath, project, module string, payload map[string]interface{}, defaultDriver, defaultDsn string) ([]map[string]interface{}, string, error) {
 	sqlFilePath := filepath.Join(basePath, project, module+".sql")
 	content, err := os.ReadFile(sqlFilePath)
 	if err != nil {
-		return nil, fmt.Errorf("erro ao ler arquivo SQL: %w", err)
+		return nil, "", fmt.Errorf("erro ao ler arquivo SQL: %w", err)
 	}
 
 	parser, err := engine.ParseMetadata(string(content))
 	if err != nil {
-		return nil, fmt.Errorf("erro ao fazer parse do SQL: %w", err)
+		return nil, "", fmt.Errorf("erro ao fazer parse do SQL: %w", err)
 	}
 
 	finalSQL := engine.InjectValues(string(content), payload, parser.Fields)
@@ -102,20 +102,20 @@ func (s *queryService) ExecuteQuery(ctx context.Context, basePath, project, modu
 
 	db, err := s.connector.Connect(ctx, driver, dsn)
 	if err != nil {
-		return nil, fmt.Errorf("erro ao conectar no banco para query dinâmica: %w", err)
+		return nil, finalSQL, fmt.Errorf("erro ao conectar no banco para query dinâmica: %w", err)
 	}
 	defer db.Close()
 
 	// Execute the query
 	rows, err := db.QueryContext(ctx, finalSQL)
 	if err != nil {
-		return nil, fmt.Errorf("erro ao executar query: %w", err)
+		return nil, finalSQL, fmt.Errorf("erro ao executar query: %w", err)
 	}
 	defer rows.Close()
 
 	columns, err := rows.Columns()
 	if err != nil {
-		return nil, err
+		return nil, finalSQL, err
 	}
 
 	var results []map[string]interface{}
@@ -128,7 +128,7 @@ func (s *queryService) ExecuteQuery(ctx context.Context, basePath, project, modu
 		}
 
 		if err := rows.Scan(columnPointers...); err != nil {
-			return nil, err
+			return nil, finalSQL, err
 		}
 
 		rowData := make(map[string]interface{})
@@ -146,5 +146,5 @@ func (s *queryService) ExecuteQuery(ctx context.Context, basePath, project, modu
 		results = append(results, rowData)
 	}
 
-	return results, nil
+	return results, finalSQL, nil
 }

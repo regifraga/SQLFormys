@@ -26,5 +26,5 @@ type MetadataResponse []Field
 type DynamicQueryService interface {
 	ListProjects(basePath string) ([]QueryProject, error)
 	GetMetadata(basePath, project, module string) (MetadataResponse, error)
-	ExecuteQuery(ctx context.Context, basePath, project, module string, payload map[string]interface{}, defaultDriver, defaultDsn string) ([]map[string]interface{}, error)
+	ExecuteQuery(ctx context.Context, basePath, project, module string, payload map[string]interface{}, defaultDriver, defaultDsn string) ([]map[string]interface{}, string, error)
 }

@@ -8,9 +8,10 @@ import (
 
 // Config armazena as configurações da aplicação
 type Config struct {
-	Port     string
-	DBDriver string
-	DBDsn    string
+	Environment string
+	Port        string
+	DBDriver    string
+	DBDsn       string
 	// Adicionar configurações de JWT aqui futuramente
 }
 
@@ -21,6 +22,11 @@ type Config struct {
 // automaticamente.
 func Load() *Config {
 	loadEnv(".env")
+
+	env := os.Getenv("APP_ENV")
+	if env == "" {
+		env = "production"
+	}
 
 	port := os.Getenv("PORT")
 	if port == "" {
@@ -39,9 +45,10 @@ func Load() *Config {
 	}
 
 	return &Config{
-		Port:     port,
-		DBDriver: dbDriver,
-		DBDsn:    dbDsn,
+		Environment: env,
+		Port:        port,
+		DBDriver:    dbDriver,
+		DBDsn:       dbDsn,
 	}
 }
 

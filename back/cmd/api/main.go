@@ -34,7 +34,7 @@ func main() {
 	// Configura o roteador principal usando a biblioteca padrão net/http
 	router := handler.NewRouter()
 
-	fmt.Printf("Servidor iniciado na porta %s\n", cfg.Port)
+	fmt.Printf("Servidor iniciado na porta %s (Ambiente: %s)\n", cfg.Port, cfg.Environment)
 	if err := http.ListenAndServe(":"+cfg.Port, router); err != nil {
 		log.Fatalf("Erro ao iniciar o servidor: %v", err)
 	}
