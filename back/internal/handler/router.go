@@ -13,7 +13,6 @@ func NewRouter() *http.ServeMux {
 
 	authHandler := NewAuthHandler()
 	projectHandler := NewProjectHandler()
-	schemaHandler := NewSchemaHandler()
 	formHandler := NewFormHandler()
 
 	// Inicializa o Motor de Queries Dinâmicas
@@ -32,9 +31,6 @@ func NewRouter() *http.ServeMux {
 
 	// Rotas Estáticas Antigas (mantidas para compatibilidade se existirem)
 	mux.HandleFunc("POST /api/projects", projectHandler.Create)
-	mux.HandleFunc("GET /api/projects/{id}", projectHandler.Get)
-	mux.HandleFunc("GET /api/projects/{id}/tables", schemaHandler.ListTables)
-	mux.HandleFunc("GET /api/projects/{id}/tables/{table}", schemaHandler.GetTableStructure)
 	mux.HandleFunc("GET /api/forms/{project_id}/{table}", formHandler.GetForm)
 	mux.HandleFunc("POST /api/forms/{project_id}/{table}/submit", formHandler.SubmitForm)
 
