@@ -22,9 +22,15 @@ type QueryProject struct {
 // MetadataResponse is the return object for the GET metadata endpoint
 type MetadataResponse []Field
 
+// QueryResult represents the result of a dynamic query execution, preserving column order.
+type QueryResult struct {
+	Columns []string                 `json:"columns"`
+	Rows    []map[string]interface{} `json:"rows"`
+}
+
 // DynamicQueryService defines the business logic for dynamic SQL execution
 type DynamicQueryService interface {
 	ListProjects(basePath string) ([]QueryProject, error)
 	GetMetadata(basePath, project, module string) (MetadataResponse, error)
-	ExecuteQuery(ctx context.Context, basePath, project, module string, payload map[string]interface{}, defaultDriver, defaultDsn string) ([]map[string]interface{}, string, error)
+	ExecuteQuery(ctx context.Context, basePath, project, module string, payload map[string]interface{}, defaultDriver, defaultDsn string) (QueryResult, string, error)
 }

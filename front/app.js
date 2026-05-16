@@ -101,7 +101,16 @@ async function executeQuery(payload) {
 
         if (!response.ok) {
             const errorText = await response.text();
-            throw new Error(errorText || 'Erro ao processar a requisição');
+            let errorMessage = errorText;
+            try {
+                const errorJson = JSON.parse(errorText);
+                if (errorJson.error) {
+                    errorMessage = errorJson.error;
+                }
+            } catch (e) {
+                // Se não for JSON, mantém o texto puro
+            }
+            throw new Error(errorMessage || 'Erro ao processar a requisição');
         }
 
         const result = await response.json();
@@ -115,7 +124,9 @@ async function executeQuery(payload) {
 
     } catch (error) {
         console.error(error);
-        showToast('Erro de Execução', error.message, 'error');
+        // Formatar quebras de linha reais ou literais (\n) para tag <br> do HTML
+        const formattedMsg = error.message.replace(/\\n|\n/g, '<br>');
+        showToast('Erro de Execução', formattedMsg, 'error');
     } finally {
         // Habilitar botão novamente
         btnExecute.disabled = false;
@@ -218,13 +229,12 @@ function renderForm(projectName, moduleName, fields) {
     // Limpar form
     dynamicForm.innerHTML = '';
 
+    btnExecute.disabled = false;
+
     if (!fields || fields.length === 0) {
         dynamicForm.innerHTML = '<p class="form-text">Nenhum campo retornado pela API para este módulo.</p>';
-        btnExecute.disabled = true;
         return;
     }
-
-    btnExecute.disabled = false;
 
     fields.forEach(field => {
         const group = document.createElement('div');
@@ -327,12 +337,12 @@ function handleExecute() {
 /* ==========================================================================
    Renderização da Grid de Resultados
    ========================================================================== */
-function renderGrid(data) {
+function renderGrid(resultData) {
     gridContainer.classList.remove('hidden');
     resultThead.innerHTML = '';
     resultTbody.innerHTML = '';
 
-    if (!data || !Array.isArray(data) || data.length === 0) {
+    if (!resultData || !resultData.columns || resultData.columns.length === 0 || !resultData.rows || resultData.rows.length === 0) {
         resultTable.classList.add('hidden');
         gridEmptyState.classList.remove('hidden');
         return;
@@ -341,8 +351,9 @@ function renderGrid(data) {
     resultTable.classList.remove('hidden');
     gridEmptyState.classList.add('hidden');
 
-    // Pegar as colunas (chaves do primeiro objeto)
-    const columns = Object.keys(data[0]);
+    // Usar as colunas retornadas pela API para manter a ordem do banco
+    const columns = resultData.columns;
+    const rows = resultData.rows;
 
     // Renderizar Cabeçalho
     const trHead = document.createElement('tr');
@@ -354,7 +365,7 @@ function renderGrid(data) {
     resultThead.appendChild(trHead);
 
     // Renderizar Linhas
-    data.forEach(row => {
+    rows.forEach(row => {
         const tr = document.createElement('tr');
         columns.forEach(col => {
             const td = document.createElement('td');

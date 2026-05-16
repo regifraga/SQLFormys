@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 
 	"sqlformys/internal/config"
@@ -67,8 +68,12 @@ func (h *QueryHandler) ExecuteQuery(w http.ResponseWriter, r *http.Request) {
 	// Payload enviado pelo frontend deve ser um objeto JSON ex: {"DT_INICIAL": "2026-04-01"}
 	var payload map[string]interface{}
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		respondWithError(w, http.StatusBadRequest, "Formato de payload inválido, esperado JSON Object")
-		return
+		if err == io.EOF {
+			payload = make(map[string]interface{})
+		} else {
+			respondWithError(w, http.StatusBadRequest, "Formato de payload inválido, esperado JSON Object")
+			return
+		}
 	}
 
 	results, finalSQL, err := h.svc.ExecuteQuery(r.Context(), basePath, project, module, payload, h.cfg.DBDriver, h.cfg.DBDsn)
