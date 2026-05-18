@@ -43,6 +43,8 @@ services:
       # String de conexão lida do .env (usando o alias 'db' do compose)
       - DB_DSN=${DB_DSN}
       - QUERIES_BASE_PATH=${QUERIES_BASE_PATH}
+    volumes:
+      - ./back/queries:/app/queries
 
   #---------------------------------------------------------
   # Frontend Web (NGINX)
