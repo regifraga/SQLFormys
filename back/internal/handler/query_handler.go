@@ -22,8 +22,8 @@ func NewQueryHandler(svc domain.DynamicQueryService) *QueryHandler {
 }
 
 func (h *QueryHandler) ListProjects(w http.ResponseWriter, r *http.Request) {
-	// Base path onde as queries estão armazenadas localmente
-	basePath := "queries"
+	// Base path onde as queries estão armazenadas localmente (configurável via env)
+	basePath := h.cfg.QueriesBasePath
 
 	projects, err := h.svc.ListProjects(basePath)
 	if err != nil {
@@ -38,7 +38,7 @@ func (h *QueryHandler) ListProjects(w http.ResponseWriter, r *http.Request) {
 func (h *QueryHandler) GetMetadata(w http.ResponseWriter, r *http.Request) {
 	project := r.PathValue("project")
 	module := r.PathValue("module")
-	basePath := "queries"
+	basePath := h.cfg.QueriesBasePath
 
 	if project == "" || module == "" {
 		respondWithError(w, http.StatusBadRequest, "Os parâmetros project e module são obrigatórios")
@@ -58,7 +58,7 @@ func (h *QueryHandler) GetMetadata(w http.ResponseWriter, r *http.Request) {
 func (h *QueryHandler) ExecuteQuery(w http.ResponseWriter, r *http.Request) {
 	project := r.PathValue("project")
 	module := r.PathValue("module")
-	basePath := "queries"
+	basePath := h.cfg.QueriesBasePath
 
 	if project == "" || module == "" {
 		respondWithError(w, http.StatusBadRequest, "Os parâmetros project e module são obrigatórios")

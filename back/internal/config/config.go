@@ -8,10 +8,11 @@ import (
 
 // Config armazena as configurações da aplicação
 type Config struct {
-	Environment string
-	Port        string
-	DBDriver    string
-	DBDsn       string
+	Environment     string
+	Port            string
+	DBDriver        string
+	DBDsn           string
+	QueriesBasePath string
 	// Adicionar configurações de JWT aqui futuramente
 }
 
@@ -44,11 +45,17 @@ func Load() *Config {
 			"Copie .env.example para .env e preencha com suas credenciais.")
 	}
 
+	queriesBasePath := os.Getenv("QUERIES_BASE_PATH")
+	if queriesBasePath == "" {
+		queriesBasePath = "queries"
+	}
+
 	return &Config{
-		Environment: env,
-		Port:        port,
-		DBDriver:    dbDriver,
-		DBDsn:       dbDsn,
+		Environment:     env,
+		Port:            port,
+		DBDriver:        dbDriver,
+		DBDsn:           dbDsn,
+		QueriesBasePath: queriesBasePath,
 	}
 }
 

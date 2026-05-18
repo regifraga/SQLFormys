@@ -42,7 +42,27 @@ services:
       - DB_DRIVER=${DB_DRIVER}
       # String de conexão lida do .env (usando o alias 'db' do compose)
       - DB_DSN=${DB_DSN}
+      - QUERIES_BASE_PATH=${QUERIES_BASE_PATH}
+
+  #---------------------------------------------------------
+  # Frontend Web (NGINX)
+  #---------------------------------------------------------
+  front:
+    build:
+      context: ./front
+      dockerfile: Dockerfile
+    container_name: sqlformys-front
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - API_BASE_URL=${API_BASE_URL:-http://localhost:8080/api}
+    ports:
+      - "3000:80"
+    depends_on:
+      - api
 
 volumes:
   sqldata:
     name: sqlformys-sqldata
+

@@ -1,0 +1,5 @@
+// Template de configuração de ambiente para o Docker
+// O comando envsubst irá substituir a variável ${API_BASE_URL} pelo valor real configurado no .env
+window.ENV = {
+    API_BASE_URL: "${API_BASE_URL}"
+};

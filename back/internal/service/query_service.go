@@ -95,9 +95,13 @@ func (s *queryService) ExecuteQuery(ctx context.Context, basePath, project, modu
 	dsn := defaultDsn
 
 	if parser.Server != "" {
-		// Substitui os placeholders padrões pelo host apontado na tag --SERVER=
-		dsn = strings.Replace(dsn, "localhost", parser.Server, 1)
-		dsn = strings.Replace(dsn, "db", parser.Server, 1) 
+		// Se a query aponta para 'localhost' mas o DSN padrão usa 'db' (ex: rodando via Docker Compose),
+		// não devemos substituir 'db' por 'localhost', pois no Docker o banco está no host 'db'.
+		// Caso contrário (ex: apontando para um IP externo como 10.1.1.50), fazemos a substituição.
+		if parser.Server != "localhost" || !strings.Contains(defaultDsn, "@db:") {
+			dsn = strings.Replace(dsn, "localhost", parser.Server, 1)
+			dsn = strings.Replace(dsn, "db", parser.Server, 1)
+		}
 	}
 
 	db, err := s.connector.Connect(ctx, driver, dsn)

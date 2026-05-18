@@ -1,4 +1,5 @@
-const API_BASE_URL = 'http://localhost:8080/api';
+const API_BASE_URL = (window.ENV && window.ENV.API_BASE_URL) ? window.ENV.API_BASE_URL : 'http://localhost:8080/api';
+
 
 // Elementos do DOM
 const sidebar = document.getElementById('sidebar');
