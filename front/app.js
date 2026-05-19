@@ -4,7 +4,8 @@ const API_BASE_URL = (window.ENV && window.ENV.API_BASE_URL) ? window.ENV.API_BA
 // Elementos do DOM
 const sidebar = document.getElementById('sidebar');
 const toggleBtn = document.getElementById('toggle-sidebar');
-const projectAccordion = document.getElementById('project-accordion');
+const sidebarResizer = document.getElementById('sidebar-resizer');
+const treeNavigation = document.getElementById('tree-navigation');
 const formContainer = document.getElementById('form-container');
 const emptyState = document.getElementById('empty-state');
 const formTitle = document.getElementById('form-title');
@@ -23,8 +24,7 @@ const gridEmptyState = document.getElementById('grid-empty-state');
 const resultTable = document.getElementById('result-table');
 
 // Estado atual
-let currentProject = null;
-let currentModule = null;
+let currentQueryPath = null;
 let currentFields = [];
 
 /* ==========================================================================
@@ -39,6 +39,37 @@ document.addEventListener('DOMContentLoaded', () => {
         sidebar.classList.toggle('collapsed');
     });
 
+    // Lógica de Redimensionamento da Sidebar
+    let isResizing = false;
+
+    if (sidebarResizer) {
+        sidebarResizer.addEventListener('mousedown', (e) => {
+            e.preventDefault();
+            isResizing = true;
+            document.body.classList.add('is-resizing');
+        });
+
+        document.addEventListener('mousemove', (e) => {
+            if (!isResizing) return;
+            
+            let newWidth = e.clientX;
+            const minWidth = 200;
+            const maxWidth = Math.min(600, window.innerWidth * 0.5);
+            
+            if (newWidth < minWidth) newWidth = minWidth;
+            if (newWidth > maxWidth) newWidth = maxWidth;
+            
+            document.documentElement.style.setProperty('--sidebar-width', `${newWidth}px`);
+        });
+
+        document.addEventListener('mouseup', () => {
+            if (isResizing) {
+                isResizing = false;
+                document.body.classList.remove('is-resizing');
+            }
+        });
+    }
+
     btnCancel.addEventListener('click', handleCancel);
     btnClear.addEventListener('click', handleClear);
     btnExecute.addEventListener('click', handleExecute);
@@ -50,29 +81,28 @@ document.addEventListener('DOMContentLoaded', () => {
 async function loadProjects() {
     try {
         const response = await fetch(`${API_BASE_URL}/projects`);
-        if (!response.ok) throw new Error('Falha ao carregar projetos');
+        if (!response.ok) throw new Error('Falha ao carregar estrutura de projetos');
         
         const data = await response.json();
-        renderAccordion(data);
+        renderTree(data, treeNavigation);
     } catch (error) {
         console.error(error);
-        projectAccordion.innerHTML = '<div class="loading-state" style="color: var(--error-color);">Erro ao carregar menu.</div>';
-        showToast('Erro de Conexão', 'Não foi possível carregar a lista de projetos.', 'error');
+        treeNavigation.innerHTML = '<div class="loading-state" style="color: var(--error-color);">Erro ao carregar menu.</div>';
+        showToast('Erro de Conexão', 'Não foi possível carregar a estrutura de projetos.', 'error');
     }
 }
 
-async function loadFormFields(projectName, moduleName) {
+async function loadFormFields(queryPath, moduleTitle) {
     try {
-        const response = await fetch(`${API_BASE_URL}/queries/${projectName}/${moduleName}`);
+        const response = await fetch(`${API_BASE_URL}/queries/${queryPath}`);
         if (!response.ok) throw new Error('Falha ao carregar campos do formulário');
         
         const fields = await response.json();
         
-        currentProject = projectName;
-        currentModule = moduleName;
+        currentQueryPath = queryPath;
         currentFields = fields;
 
-        renderForm(projectName, moduleName, fields);
+        renderForm(queryPath, moduleTitle, fields);
         
         // Esconder empty state e grid antiga, mostrar form
         emptyState.classList.add('hidden');
@@ -92,7 +122,7 @@ async function executeQuery(payload) {
     btnExecute.innerText = 'Executando...';
 
     try {
-        const response = await fetch(`${API_BASE_URL}/queries/${currentProject}/${currentModule}`, {
+        const response = await fetch(`${API_BASE_URL}/queries/${currentQueryPath}`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
@@ -136,96 +166,107 @@ async function executeQuery(payload) {
 }
 
 /* ==========================================================================
-   Renderização do Menu Lateral (Acordeão)
+   Renderização do Menu Lateral em Árvore (Tree View)
    ========================================================================== */
-function renderAccordion(projects) {
-    projectAccordion.innerHTML = ''; // Limpar loading state
+function renderTree(nodes, container) {
+    container.innerHTML = ''; // Limpar loading state
 
-    if (!projects || projects.length === 0) {
-        projectAccordion.innerHTML = '<div class="loading-state">Nenhum projeto encontrado.</div>';
+    if (!nodes || nodes.length === 0) {
+        container.innerHTML = '<div class="loading-state">Nenhum projeto encontrado.</div>';
         return;
     }
 
-    projects.forEach((proj, index) => {
-        // Criar item do acordeão
-        const item = document.createElement('div');
-        item.className = 'accordion-item';
+    const treeContainer = document.createElement('div');
+    treeContainer.className = 'tree-root';
 
-        // Cabeçalho (Projeto)
-        const header = document.createElement('button');
-        header.className = 'accordion-header';
-        
-        // Expandir o primeiro por padrão
-        if (index === 0) {
-            header.classList.add('active');
-        }
+    // Função auxiliar recursiva
+    function buildSubTree(nodeList, parentElement, level = 0) {
+        nodeList.forEach(node => {
+            const itemContainer = document.createElement('div');
+            itemContainer.className = 'tree-node-container';
 
-        header.innerHTML = `
-            <svg class="project-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
-            </svg>
-            <span class="accordion-title">${proj.project}</span>
-            <svg class="accordion-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <polyline points="6 9 12 15 18 9"></polyline>
-            </svg>
-        `;
+            if (node.type === 'folder') {
+                const folderHeader = document.createElement('button');
+                folderHeader.className = 'tree-folder-header';
+                folderHeader.style.paddingLeft = `${16 + (level * 16)}px`;
+                folderHeader.innerHTML = `
+                    <svg class="tree-icon folder-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+                    </svg>
+                    <span class="tree-title">${node.name}</span>
+                    <svg class="tree-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="6 9 12 15 18 9"></polyline>
+                    </svg>
+                `;
 
-        // Conteúdo (Módulos)
-        const content = document.createElement('div');
-        content.className = `accordion-content ${index === 0 ? 'open' : ''}`;
-        
-        const moduleList = document.createElement('ul');
-        moduleList.className = 'module-list';
+                const childrenContainer = document.createElement('div');
+                childrenContainer.className = 'tree-folder-content';
 
-        proj.modules.forEach(mod => {
-            const li = document.createElement('li');
-            const link = document.createElement('a');
-            link.className = 'module-link';
-            link.innerText = mod;
-            
-            link.addEventListener('click', (e) => {
-                e.preventDefault();
-                
-                // Remover active de todos os links
-                document.querySelectorAll('.module-link').forEach(l => l.classList.remove('active'));
-                link.classList.add('active');
+                // Nível 0 aberto por padrão
+                if (level === 0) {
+                    childrenContainer.classList.add('open');
+                    folderHeader.classList.add('active');
+                }
 
-                loadFormFields(proj.project, mod);
-            });
+                if (node.children && node.children.length > 0) {
+                    buildSubTree(node.children, childrenContainer, level + 1);
+                }
 
-            li.appendChild(link);
-            moduleList.appendChild(li);
-        });
+                folderHeader.addEventListener('click', () => {
+                    const isOpen = childrenContainer.classList.contains('open');
+                    if (isOpen) {
+                        childrenContainer.classList.remove('open');
+                        folderHeader.classList.remove('active');
+                    } else {
+                        childrenContainer.classList.add('open');
+                        folderHeader.classList.add('active');
+                    }
+                });
 
-        content.appendChild(moduleList);
+                itemContainer.appendChild(folderHeader);
+                itemContainer.appendChild(childrenContainer);
+            } else {
+                // node.type === 'module'
+                const moduleLink = document.createElement('a');
+                moduleLink.className = 'tree-module-link module-link';
+                moduleLink.style.paddingLeft = `${16 + (level * 16)}px`;
+                moduleLink.innerHTML = `
+                    <svg class="tree-icon module-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                        <polyline points="14 2 14 8 20 8"></polyline>
+                        <line x1="16" y1="13" x2="8" y2="13"></line>
+                        <line x1="16" y1="17" x2="8" y2="17"></line>
+                        <polyline points="10 9 9 9 8 9"></polyline>
+                    </svg>
+                    <span class="tree-title">${node.name}</span>
+                `;
 
-        // Lógica de click no Header
-        header.addEventListener('click', () => {
-            const isOpen = content.classList.contains('open');
-            
-            // Fechar todos
-            document.querySelectorAll('.accordion-content').forEach(c => c.classList.remove('open'));
-            document.querySelectorAll('.accordion-header').forEach(h => h.classList.remove('active'));
+                moduleLink.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    document.querySelectorAll('.module-link').forEach(l => l.classList.remove('active'));
+                    moduleLink.classList.add('active');
 
-            if (!isOpen) {
-                content.classList.add('open');
-                header.classList.add('active');
+                    loadFormFields(node.path, node.name);
+                });
+
+                itemContainer.appendChild(moduleLink);
             }
-        });
 
-        item.appendChild(header);
-        item.appendChild(content);
-        projectAccordion.appendChild(item);
-    });
+            parentElement.appendChild(itemContainer);
+        });
+    }
+
+    buildSubTree(nodes, treeContainer, 0);
+    container.appendChild(treeContainer);
 }
 
 /* ==========================================================================
    Renderização do Formulário Dinâmico
    ========================================================================== */
-function renderForm(projectName, moduleName, fields) {
+function renderForm(queryPath, moduleTitle, fields) {
     // Atualizar títulos
-    formTitle.innerText = moduleName;
-    formSubtitle.innerText = `${projectName} > ${moduleName}`;
+    formTitle.innerText = moduleTitle;
+    formSubtitle.innerText = queryPath.replace(/\//g, ' > ');
 
     // Limpar form
     dynamicForm.innerHTML = '';
@@ -244,7 +285,10 @@ function renderForm(projectName, moduleName, fields) {
         const label = document.createElement('label');
         label.className = 'form-label';
         label.htmlFor = `field_${field.field}`;
-        label.innerText = field.label + (field.required ? ' *' : '');
+        label.innerText = field.label;
+        if (field.required) {
+            label.classList.add('required');
+        }
 
         let input;
 
@@ -299,8 +343,7 @@ function handleCancel() {
     // Remover classe ativa do menu lateral
     document.querySelectorAll('.module-link').forEach(l => l.classList.remove('active'));
     
-    currentProject = null;
-    currentModule = null;
+    currentQueryPath = null;
     currentFields = [];
 }
 

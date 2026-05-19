@@ -22,10 +22,10 @@ func NewRouter() *http.ServeMux {
 	mux.HandleFunc("POST /api/auth/login", authHandler.Login)
 	mux.HandleFunc("POST /api/auth/register", authHandler.Register)
 
-	// Rotas Dinâmicas do SQLFormys Engine (Substituindo a antiga listagem estática)
+	// Rotas Dinâmicas do SQLFormys Engine (Suportando N níveis de subpastas)
 	mux.HandleFunc("GET /api/projects", queryHandler.ListProjects)
-	mux.HandleFunc("GET /api/queries/{project}/{module}", queryHandler.GetMetadata)
-	mux.HandleFunc("POST /api/queries/{project}/{module}", queryHandler.ExecuteQuery)
+	mux.HandleFunc("GET /api/queries/{filepath...}", queryHandler.GetMetadata)
+	mux.HandleFunc("POST /api/queries/{filepath...}", queryHandler.ExecuteQuery)
 
 	// Rota padrão para 404 (JSON)
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {

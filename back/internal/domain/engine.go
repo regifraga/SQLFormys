@@ -13,10 +13,12 @@ type Field struct {
 	Operator     string `json:"-"` // Internal use for building query, typically '='
 }
 
-// QueryProject represents a group of Modules (SQL scripts)
-type QueryProject struct {
-	Project string   `json:"project"`
-	Modules []string `json:"modules"`
+// TreeNode represents a hierarchical node (folder or module) in the queries directory tree
+type TreeNode struct {
+	Name     string     `json:"name"`
+	Type     string     `json:"type"`           // "folder" ou "module"
+	Path     string     `json:"path,omitempty"` // Caminho relativo para modules, ex: "Financeiro/Relatorios/fechamento"
+	Children []TreeNode `json:"children,omitempty"`
 }
 
 // MetadataResponse is the return object for the GET metadata endpoint
@@ -30,7 +32,7 @@ type QueryResult struct {
 
 // DynamicQueryService defines the business logic for dynamic SQL execution
 type DynamicQueryService interface {
-	ListProjects(basePath string) ([]QueryProject, error)
-	GetMetadata(basePath, project, module string) (MetadataResponse, error)
-	ExecuteQuery(ctx context.Context, basePath, project, module string, payload map[string]interface{}, defaultDriver, defaultDsn string) (QueryResult, string, error)
+	ListProjects(basePath string) ([]TreeNode, error)
+	GetMetadata(basePath, queryPath string) (MetadataResponse, error)
+	ExecuteQuery(ctx context.Context, basePath, queryPath string, payload map[string]interface{}, defaultDriver, defaultDsn string) (QueryResult, string, error)
 }

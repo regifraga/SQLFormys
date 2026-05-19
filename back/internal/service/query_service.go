@@ -23,47 +23,65 @@ func NewDynamicQueryService(connector *database.Connector) domain.DynamicQuerySe
 	}
 }
 
-func (s *queryService) ListProjects(basePath string) ([]domain.QueryProject, error) {
-	var projects []domain.QueryProject
+func buildTree(currentDir string, currentRelPath string) ([]domain.TreeNode, error) {
+	var nodes []domain.TreeNode
 
-	entries, err := os.ReadDir(basePath)
+	entries, err := os.ReadDir(currentDir)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return projects, nil
+			return nodes, nil
 		}
-		return nil, fmt.Errorf("erro ao ler diretório de queries: %w", err)
+		return nil, err
 	}
 
 	for _, entry := range entries {
 		if entry.IsDir() {
-			project := domain.QueryProject{
-				Project: entry.Name(),
-				Modules: []string{},
+			subDir := filepath.Join(currentDir, entry.Name())
+			subRel := entry.Name()
+			if currentRelPath != "" {
+				subRel = currentRelPath + "/" + entry.Name()
 			}
 
-			// Ler os arquivos .sql dentro do projeto
-			projectPath := filepath.Join(basePath, entry.Name())
-			files, err := os.ReadDir(projectPath)
-			if err == nil {
-				for _, file := range files {
-					if !file.IsDir() && strings.HasSuffix(file.Name(), ".sql") {
-						moduleName := strings.TrimSuffix(file.Name(), ".sql")
-						project.Modules = append(project.Modules, moduleName)
-					}
-				}
+			children, err := buildTree(subDir, subRel)
+			if err != nil {
+				return nil, err
 			}
 
-			if len(project.Modules) > 0 {
-				projects = append(projects, project)
+			if len(children) > 0 {
+				nodes = append(nodes, domain.TreeNode{
+					Name:     entry.Name(),
+					Type:     "folder",
+					Children: children,
+				})
 			}
+		} else if strings.HasSuffix(entry.Name(), ".sql") {
+			moduleName := strings.TrimSuffix(entry.Name(), ".sql")
+			modRel := moduleName
+			if currentRelPath != "" {
+				modRel = currentRelPath + "/" + moduleName
+			}
+
+			nodes = append(nodes, domain.TreeNode{
+				Name: moduleName,
+				Type: "module",
+				Path: modRel,
+			})
 		}
 	}
 
-	return projects, nil
+	return nodes, nil
 }
 
-func (s *queryService) GetMetadata(basePath, project, module string) (domain.MetadataResponse, error) {
-	sqlFilePath := filepath.Join(basePath, project, module+".sql")
+func (s *queryService) ListProjects(basePath string) ([]domain.TreeNode, error) {
+	nodes, err := buildTree(basePath, "")
+	if err != nil {
+		return nil, fmt.Errorf("erro ao ler diretório de queries: %w", err)
+	}
+	return nodes, nil
+}
+
+func (s *queryService) GetMetadata(basePath, queryPath string) (domain.MetadataResponse, error) {
+	sqlFilePath := filepath.Join(basePath, queryPath+".sql")
 	content, err := os.ReadFile(sqlFilePath)
 	if err != nil {
 		return nil, fmt.Errorf("erro ao ler arquivo SQL: %w", err)
@@ -77,8 +95,8 @@ func (s *queryService) GetMetadata(basePath, project, module string) (domain.Met
 	return parser.Fields, nil
 }
 
-func (s *queryService) ExecuteQuery(ctx context.Context, basePath, project, module string, payload map[string]interface{}, defaultDriver, defaultDsn string) (domain.QueryResult, string, error) {
-	sqlFilePath := filepath.Join(basePath, project, module+".sql")
+func (s *queryService) ExecuteQuery(ctx context.Context, basePath, queryPath string, payload map[string]interface{}, defaultDriver, defaultDsn string) (domain.QueryResult, string, error) {
+	sqlFilePath := filepath.Join(basePath, queryPath+".sql")
 	content, err := os.ReadFile(sqlFilePath)
 	if err != nil {
 		return domain.QueryResult{}, "", fmt.Errorf("erro ao ler arquivo SQL: %w", err)

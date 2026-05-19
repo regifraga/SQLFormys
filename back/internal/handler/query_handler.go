@@ -36,16 +36,15 @@ func (h *QueryHandler) ListProjects(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *QueryHandler) GetMetadata(w http.ResponseWriter, r *http.Request) {
-	project := r.PathValue("project")
-	module := r.PathValue("module")
+	filepathParam := r.PathValue("filepath")
 	basePath := h.cfg.QueriesBasePath
 
-	if project == "" || module == "" {
-		respondWithError(w, http.StatusBadRequest, "Os parâmetros project e module são obrigatórios")
+	if filepathParam == "" {
+		respondWithError(w, http.StatusBadRequest, "O parâmetro filepath é obrigatório")
 		return
 	}
 
-	metadata, err := h.svc.GetMetadata(basePath, project, module)
+	metadata, err := h.svc.GetMetadata(basePath, filepathParam)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -56,12 +55,11 @@ func (h *QueryHandler) GetMetadata(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *QueryHandler) ExecuteQuery(w http.ResponseWriter, r *http.Request) {
-	project := r.PathValue("project")
-	module := r.PathValue("module")
+	filepathParam := r.PathValue("filepath")
 	basePath := h.cfg.QueriesBasePath
 
-	if project == "" || module == "" {
-		respondWithError(w, http.StatusBadRequest, "Os parâmetros project e module são obrigatórios")
+	if filepathParam == "" {
+		respondWithError(w, http.StatusBadRequest, "O parâmetro filepath é obrigatório")
 		return
 	}
 
@@ -76,7 +74,7 @@ func (h *QueryHandler) ExecuteQuery(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	results, finalSQL, err := h.svc.ExecuteQuery(r.Context(), basePath, project, module, payload, h.cfg.DBDriver, h.cfg.DBDsn)
+	results, finalSQL, err := h.svc.ExecuteQuery(r.Context(), basePath, filepathParam, payload, h.cfg.DBDriver, h.cfg.DBDsn)
 	if err != nil {
 		var debugQuery string
 		if h.cfg.Environment == "development" || h.cfg.Environment == "local" {

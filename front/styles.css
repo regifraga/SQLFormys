@@ -161,12 +161,55 @@ input, select {
     padding: 0 12px;
 }
 
-/* Estilos do Acordeão */
-.accordion-item {
-    margin-bottom: 4px;
+/* ==========================================================================
+   Redimensionador do Menu Lateral (Resizer)
+   ========================================================================== */
+.sidebar-resizer {
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 6px;
+    height: 100%;
+    cursor: col-resize;
+    background-color: transparent;
+    transition: background-color 0.2s ease;
+    z-index: 45;
 }
 
-.accordion-header {
+.sidebar-resizer:hover,
+body.is-resizing .sidebar-resizer {
+    background-color: var(--primary-color);
+}
+
+.sidebar.collapsed .sidebar-resizer {
+    display: none;
+}
+
+body.is-resizing {
+    cursor: col-resize;
+    user-select: none;
+}
+
+body.is-resizing .sidebar,
+body.is-resizing .main-content {
+    transition: none !important;
+}
+
+/* ==========================================================================
+   Menu Lateral em Árvore (Tree View)
+   ========================================================================== */
+.tree-root {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.tree-node-container {
+    display: flex;
+    flex-direction: column;
+}
+
+.tree-folder-header {
     display: flex;
     align-items: center;
     width: 100%;
@@ -175,56 +218,69 @@ input, select {
     color: var(--text-primary);
     font-weight: 500;
     font-size: 0.95rem;
-    transition: background-color 0.2s;
+    transition: background-color 0.2s, color 0.2s;
+    user-select: none;
 }
 
-.accordion-header:hover {
+.tree-folder-header:hover {
     background-color: var(--bg-main);
 }
 
-.accordion-header.active {
+.tree-folder-header.active {
     color: var(--primary-color);
+    font-weight: 600;
 }
 
-.accordion-icon {
-    margin-left: auto;
-    transition: transform 0.3s ease;
-    width: 16px;
-    height: 16px;
-}
-
-.accordion-header.active .accordion-icon {
-    transform: rotate(180deg);
-}
-
-.project-icon {
+.tree-icon {
     margin-right: 12px;
     width: 18px;
     height: 18px;
     color: var(--text-secondary);
+    flex-shrink: 0;
+    transition: color 0.2s;
 }
 
-.accordion-header.active .project-icon {
+.tree-folder-header.active .tree-icon {
     color: var(--primary-color);
 }
 
-.accordion-content {
+.tree-title {
+    flex: 1;
+    text-align: left;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.tree-arrow {
+    margin-left: auto;
+    width: 16px;
+    height: 16px;
+    color: var(--text-secondary);
+    transition: transform 0.3s ease;
+}
+
+.tree-folder-header.active .tree-arrow {
+    transform: rotate(180deg);
+    color: var(--primary-color);
+}
+
+.tree-folder-content {
     max-height: 0;
     overflow: hidden;
     transition: max-height 0.3s ease;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
 }
 
-.accordion-content.open {
-    max-height: 500px; /* Suficiente para o conteúdo */
+.tree-folder-content.open {
+    max-height: 2000px; /* Suporta múltiplos subníveis aninhados */
 }
 
-.module-list {
-    list-style: none;
-    padding: 4px 0 12px 30px;
-}
-
-.module-link {
-    display: block;
+.tree-module-link {
+    display: flex;
+    align-items: center;
     padding: 8px 12px;
     color: var(--text-secondary);
     font-size: 0.875rem;
@@ -232,17 +288,22 @@ input, select {
     border-radius: 4px;
     transition: all 0.2s;
     cursor: pointer;
+    user-select: none;
 }
 
-.module-link:hover {
+.tree-module-link:hover {
     color: var(--text-primary);
     background-color: var(--bg-main);
 }
 
-.module-link.active {
+.tree-module-link.active {
     color: var(--primary-color);
     font-weight: 500;
     background-color: rgba(59, 130, 246, 0.1);
+}
+
+.tree-module-link.active .tree-icon {
+    color: var(--primary-color);
 }
 
 .sidebar-footer {
@@ -339,6 +400,11 @@ input, select {
     font-weight: 500;
     color: var(--text-primary);
     margin-bottom: 8px;
+}
+
+.form-label.required::after {
+    content: " *";
+    color: var(--error-color);
 }
 
 .form-control {
