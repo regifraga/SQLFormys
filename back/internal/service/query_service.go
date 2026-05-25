@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -107,10 +108,10 @@ func (s *queryService) ExecuteQuery(ctx context.Context, basePath, queryPath str
 		return domain.QueryResult{}, "", fmt.Errorf("erro ao fazer parse do SQL: %w", err)
 	}
 
-	finalSQL := engine.InjectValues(string(content), payload, parser.Fields)
-
 	driver := defaultDriver
 	dsn := defaultDsn
+
+	finalSQL := engine.InjectValues(string(content), payload, parser.Fields, driver)
 
 	if parser.Server != "" {
 		// Se a query aponta para 'localhost' mas o DSN padrão usa 'db' (ex: rodando via Docker Compose),
@@ -128,16 +129,50 @@ func (s *queryService) ExecuteQuery(ctx context.Context, basePath, queryPath str
 	}
 	defer db.Close()
 
-	// Execute the query
-	rows, err := db.QueryContext(ctx, finalSQL)
+	isPostgres := driver == "postgres" || driver == "pgx"
+	var tx *sql.Tx
+	var rows *sql.Rows
+
+	if isPostgres {
+		tx, err = db.BeginTx(ctx, nil)
+		if err != nil {
+			return domain.QueryResult{}, finalSQL, fmt.Errorf("erro ao iniciar transação: %w", err)
+		}
+		defer tx.Rollback()
+
+		// Inject variables into pg session configuration using set_config
+		for _, field := range parser.Fields {
+			val, exists := payload[field.Field]
+			if !exists || val == nil {
+				val = ""
+			}
+			valStr := fmt.Sprintf("%v", val)
+
+			_, err = tx.ExecContext(ctx, "SELECT set_config($1, $2, true)", fmt.Sprintf("vars.%s", field.Field), valStr)
+			if err != nil {
+				return domain.QueryResult{}, finalSQL, fmt.Errorf("erro ao definir parâmetro %s: %w", field.Field, err)
+			}
+		}
+
+		rows, err = tx.QueryContext(ctx, finalSQL)
+	} else {
+		rows, err = db.QueryContext(ctx, finalSQL)
+	}
+
 	if err != nil {
 		return domain.QueryResult{}, finalSQL, fmt.Errorf("erro ao executar query: %w", err)
 	}
 	defer rows.Close()
 
-	columns, err := rows.Columns()
-	if err != nil {
-		return domain.QueryResult{}, finalSQL, err
+	var columns []string
+	for {
+		columns, err = rows.Columns()
+		if err == nil && len(columns) > 0 {
+			break
+		}
+		if !rows.NextResultSet() {
+			break
+		}
 	}
 
 	var results []map[string]interface{}
@@ -166,6 +201,12 @@ func (s *queryService) ExecuteQuery(ctx context.Context, basePath, queryPath str
 		}
 
 		results = append(results, rowData)
+	}
+
+	if isPostgres {
+		if err := tx.Commit(); err != nil {
+			return domain.QueryResult{}, finalSQL, fmt.Errorf("erro ao fazer commit da transação: %w", err)
+		}
 	}
 
 	return domain.QueryResult{

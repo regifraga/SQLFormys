@@ -126,7 +126,49 @@ func TestInjectValues(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			parser, _ := ParseMetadata(sqlBase)
-			finalSQL := InjectValues(sqlBase, tt.values, parser.Fields)
+			finalSQL := InjectValues(sqlBase, tt.values, parser.Fields, "sqlserver")
+
+			for _, s := range tt.contains {
+				assert.Contains(t, finalSQL, s)
+			}
+			for _, e := range tt.excludes {
+				assert.NotContains(t, finalSQL, e)
+			}
+			assert.Contains(t, finalSQL, "SELECT * FROM users")
+		})
+	}
+}
+
+func TestInjectValuesPostgres(t *testing.T) {
+	sqlBase := "--SERVER=127.0.0.1\n--<PROPERTIES>\n" +
+		"--SELECT @?#ID:INT:8:=:ID\n" +
+		"--SELECT @?NAME:VARCHAR:50:=:Nome\n" +
+		"--SELECT @?VAL:DECIMAL:10:=:Valor\n" +
+		"--</PROPERTIES>\n" +
+		"SELECT * FROM users"
+
+	tests := []struct {
+		name     string
+		values   map[string]interface{}
+		contains []string
+		excludes []string
+	}{
+		{
+			name: "Postgres removes properties block",
+			values: map[string]interface{}{
+				"ID":   123,
+				"NAME": "O'Connor",
+				"VAL":  45.67,
+			},
+			contains: []string{"SELECT * FROM users"},
+			excludes: []string{"--<PROPERTIES>", "--</PROPERTIES>", "@ID", "@NAME", "@VAL"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			parser, _ := ParseMetadata(sqlBase)
+			finalSQL := InjectValues(sqlBase, tt.values, parser.Fields, "postgres")
 
 			for _, s := range tt.contains {
 				assert.Contains(t, finalSQL, s)

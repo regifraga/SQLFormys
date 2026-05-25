@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 
+	// Driver do Postgres (Moderno)
+	_ "github.com/jackc/pgx/v5/stdlib"
 	// Driver do SQL Server
 	_ "github.com/microsoft/go-mssqldb"
 )
@@ -22,15 +24,18 @@ func NewConnector() *Connector {
 
 // Connect estabelece uma conexão baseada no driver e string de conexão (DSN)
 func (c *Connector) Connect(ctx context.Context, driver string, dsn string) (*sql.DB, error) {
-	// Valida os drivers suportados
+	// Valida os drivers suportados e mapeia para o driver real
+	var realDriver string
 	switch driver {
-	case "postgres", "mysql", "sqlite3", "sqlserver":
-		// OK
+	case "postgres", "pgx":
+		realDriver = "pgx"
+	case "mysql", "sqlite3", "sqlserver":
+		realDriver = driver
 	default:
 		return nil, errors.New("driver de banco de dados não suportado")
 	}
 
-	db, err := sql.Open(driver, dsn)
+	db, err := sql.Open(realDriver, dsn)
 	if err != nil {
 		return nil, fmt.Errorf("erro ao abrir conexão: %w", err)
 	}

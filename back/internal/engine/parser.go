@@ -76,9 +76,11 @@ func ParseMetadata(sqlContent string) (*SQLParser, error) {
 	return parser, nil
 }
 
-// InjectValues takes the original SQL and user values, replaces the PROPERTIES block with SELECT injections
-func InjectValues(sqlContent string, values map[string]interface{}, fields []domain.Field) string {
+// InjectValues takes the original SQL and user values, replaces the PROPERTIES block with SELECT injections (or SET statements for Postgres)
+func InjectValues(sqlContent string, values map[string]interface{}, fields []domain.Field, driver string) string {
 	var injections []string
+
+	isPostgres := driver == "postgres" || driver == "pgx"
 
 	for _, field := range fields {
 		val, exists := values[field.Field]
@@ -88,22 +90,23 @@ func InjectValues(sqlContent string, values map[string]interface{}, fields []dom
 
 		valStr := fmt.Sprintf("%v", val)
 
-		// Determine if value needs quotes based on Type
-		isNumeric := field.Type == "INT" || field.Type == "DECIMAL" || field.Type == "NUMERIC" || field.Type == "FLOAT"
-
-		if isNumeric {
-			if valStr == "" {
-				valStr = "NULL"
-			}
-			injections = append(injections, fmt.Sprintf("SELECT @%s=%s", field.Field, valStr))
+		if isPostgres {
+			// In Postgres, session variables are set in a transaction before query execution,
+			// so we do not inject any SQL statements in place of the properties block.
 		} else {
-			if valStr == "" && !field.Required {
-				// Avoid injecting empty strings into dates if they are not required, or let SQL handle it?
-				// Using empty string is standard based on the docs: SELECT @NM_ARQUIVO=''
+			// Determine if value needs quotes based on Type
+			isNumeric := field.Type == "INT" || field.Type == "DECIMAL" || field.Type == "NUMERIC" || field.Type == "FLOAT"
+
+			if isNumeric {
+				if valStr == "" {
+					valStr = "NULL"
+				}
+				injections = append(injections, fmt.Sprintf("SELECT @%s=%s", field.Field, valStr))
+			} else {
+				// Escape single quotes for SQL
+				valStr = strings.ReplaceAll(valStr, "'", "''")
+				injections = append(injections, fmt.Sprintf("SELECT @%s='%s'", field.Field, valStr))
 			}
-			// Escape single quotes for SQL
-			valStr = strings.ReplaceAll(valStr, "'", "''")
-			injections = append(injections, fmt.Sprintf("SELECT @%s='%s'", field.Field, valStr))
 		}
 	}
 
