@@ -13,6 +13,7 @@ func TestParseMetadata(t *testing.T) {
 		wantServer      string
 		wantDescription string
 		wantExecuteMode string
+		wantTimeout     int
 		wantFields      int
 		checkField      func(*testing.T, *SQLParser)
 		expectError     bool
@@ -117,6 +118,32 @@ func TestParseMetadata(t *testing.T) {
 			wantExecuteMode: "AUTO",
 			wantFields:      1,
 		},
+		{
+			name: "With description, execute mode and timeout metadata",
+			sqlContent: "--SERVER=localhost\n" +
+				"--DESCRIPTION=Mais um teste IDIOTA!\n" +
+				"--EXECUTE_MODE=AUTO\n" +
+				"--TIMEOUT=10\n" +
+				"--<PROPERTIES>\n" +
+				"--SELECT @?#DT_INICIAL:DATE:8:=:Data Inicial\n" +
+				"--</PROPERTIES>",
+			wantServer:      "localhost",
+			wantDescription: "Mais um teste IDIOTA!",
+			wantExecuteMode: "AUTO",
+			wantTimeout:     10,
+			wantFields:      1,
+		},
+		{
+			name: "With invalid timeout value (should default to 60)",
+			sqlContent: "--SERVER=localhost\n" +
+				"--TIMEOUT=abc\n" +
+				"--<PROPERTIES>\n" +
+				"--SELECT @?#DT_INICIAL:DATE:8:=:Data Inicial\n" +
+				"--</PROPERTIES>",
+			wantServer:      "localhost",
+			wantTimeout:     60,
+			wantFields:      1,
+		},
 	}
 
 	for _, tt := range tests {
@@ -130,6 +157,11 @@ func TestParseMetadata(t *testing.T) {
 			assert.Equal(t, tt.wantServer, parser.Server)
 			assert.Equal(t, tt.wantDescription, parser.Description)
 			assert.Equal(t, tt.wantExecuteMode, parser.ExecuteMode)
+			expectedTimeout := tt.wantTimeout
+			if expectedTimeout == 0 {
+				expectedTimeout = 60
+			}
+			assert.Equal(t, expectedTimeout, parser.Timeout)
 			assert.Len(t, parser.Fields, tt.wantFields)
 			if tt.checkField != nil {
 				tt.checkField(t, parser)

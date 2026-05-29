@@ -3,33 +3,39 @@
    ========================================================================== */
 :root {
     /* Cores Primárias (Baseadas no tema LURID da imagem) */
-    --primary-color: #3b82f6; /* Azul forte do Header */
+    --primary-color: #3b82f6;
+    /* Azul forte do Header */
     --primary-hover: #2563eb;
-    
+
     /* Cores de Fundo */
-    --bg-main: #f3f4f6; /* Cinza claro para o fundo principal */
-    --bg-surface: #ffffff; /* Branco para cards e sidebar */
-    
+    --bg-main: #f3f4f6;
+    /* Cinza claro para o fundo principal */
+    --bg-surface: #ffffff;
+    /* Branco para cards e sidebar */
+
     /* Texto e Tipografia */
-    --text-primary: #1f2937; /* Cinza escuro para texto principal */
-    --text-secondary: #6b7280; /* Cinza médio para rótulos e subtextos */
+    --text-primary: #1f2937;
+    /* Cinza escuro para texto principal */
+    --text-secondary: #6b7280;
+    /* Cinza médio para rótulos e subtextos */
     --text-muted: #9ca3af;
-    --text-light: #ffffff; /* Texto sobre fundo escuro/azul */
-    
+    --text-light: #ffffff;
+    /* Texto sobre fundo escuro/azul */
+
     /* Bordas e Sombras */
     --border-color: #e5e7eb;
     --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
     --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
-    
+
     /* Feedback (Status) */
     --error-color: #ef4444;
     --success-color: #10b981;
-    
+
     /* Layout */
     --sidebar-width: 300px;
     --header-height: 60px;
     --transition-speed: 0.3s;
-    
+
     /* Fontes */
     --font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 }
@@ -59,7 +65,8 @@ button {
     background: none;
 }
 
-input, select {
+input,
+select {
     font-family: inherit;
 }
 
@@ -217,7 +224,7 @@ input, select {
     box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
 }
 
-.search-input-wrapper input:focus ~ .search-icon {
+.search-input-wrapper input:focus~.search-icon {
     color: var(--primary-color);
 }
 
@@ -358,7 +365,8 @@ body.is-resizing .main-content {
 }
 
 .tree-folder-content.open {
-    max-height: 2000px; /* Suporta múltiplos subníveis aninhados */
+    max-height: 2000px;
+    /* Suporta múltiplos subníveis aninhados */
 }
 
 .tree-module-link {
@@ -414,7 +422,7 @@ body.is-resizing .main-content {
     transition: margin-left var(--transition-speed) ease;
 }
 
-.sidebar.collapsed ~ .main-content {
+.sidebar.collapsed~.main-content {
     margin-left: 50px;
 }
 
@@ -478,7 +486,7 @@ body.is-resizing .main-content {
 }
 
 .form-description {
-    font-size: 0.8rem;
+    font-size: 0.7rem;
     color: var(--text-secondary);
     margin-top: 10px;
     margin-bottom: 4px;
@@ -510,7 +518,7 @@ body.is-resizing .main-content {
 }
 
 .meta-badge {
-    font-size: 0.75rem;
+    font-size: 0.70rem;
     font-weight: 600;
     padding: 4px 8px;
     border-radius: 4px;
@@ -527,6 +535,10 @@ body.is-resizing .main-content {
 
 .meta-badge.execute-mode {
     border-left: 3px solid #8b5cf6;
+}
+
+.meta-badge.timeout {
+    border-left: 3px solid #f59e0b;
 }
 
 .card-body {
@@ -689,6 +701,7 @@ body.is-resizing .main-content {
         transform: translateX(100%);
         opacity: 0;
     }
+
     to {
         transform: translateX(0);
         opacity: 1;
@@ -704,6 +717,7 @@ body.is-resizing .main-content {
         transform: translateX(0);
         opacity: 1;
     }
+
     to {
         transform: translateX(100%);
         opacity: 0;
@@ -896,11 +910,13 @@ body.is-resizing .main-content {
 
 .favorite-btn:hover {
     background-color: var(--border-color);
-    color: #f59e0b; /* Âmbar */
+    color: #f59e0b;
+    /* Âmbar */
 }
 
 .favorite-btn.is-favorite {
-    color: #f59e0b; /* Âmbar */
+    color: #f59e0b;
+    /* Âmbar */
 }
 
 /* ==========================================================================
@@ -950,4 +966,3 @@ body.is-resizing .main-content {
         order: 3;
     }
 }
-

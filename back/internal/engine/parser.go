@@ -15,12 +15,16 @@ type SQLParser struct {
 	Server      string
 	Description string
 	ExecuteMode string
+	Timeout     int
 	Fields      []domain.Field
 }
 
 var (
 	// Matches --SERVER=10.123.43.126
 	serverRegex = regexp.MustCompile(`(?m)^--SERVER=(.*)$`)
+
+	// Matches --TIMEOUT=10
+	timeoutRegex = regexp.MustCompile(`(?m)^--TIMEOUT=(.*)$`)
 
 	// Matches --DESCRIPTION=...
 	descriptionRegex = regexp.MustCompile(`(?m)^--DESCRIPTION=(.*)$`)
@@ -60,6 +64,16 @@ func ParseMetadata(sqlContent string) (*SQLParser, error) {
 	serverMatch := serverRegex.FindStringSubmatch(sqlContent)
 	if len(serverMatch) > 1 {
 		parser.Server = strings.TrimSpace(serverMatch[1])
+	}
+
+	// Extract Timeout if present, defaulting to 60
+	parser.Timeout = 60
+	timeoutMatch := timeoutRegex.FindStringSubmatch(sqlContent)
+	if len(timeoutMatch) > 1 {
+		tVal := strings.TrimSpace(timeoutMatch[1])
+		if val, err := strconv.Atoi(tVal); err == nil && val > 0 {
+			parser.Timeout = val
+		}
 	}
 
 	// Extract Description if present

@@ -227,11 +227,12 @@ async function loadFormFields(queryPath, moduleTitle) {
         const description = data.description || '';
         const executeMode = data.executeMode || '';
         const server = data.server || '';
+        const timeout = data.timeout || 60;
         
         currentQueryPath = queryPath;
         currentFields = fields;
 
-        renderForm(queryPath, moduleTitle, fields, description, executeMode, server);
+        renderForm(queryPath, moduleTitle, fields, description, executeMode, server, timeout);
         
         // Esconder empty state e grid antiga, mostrar form
         emptyState.classList.add('hidden');
@@ -428,7 +429,7 @@ function renderTree(nodes, container, isSearching = false) {
 /* ==========================================================================
    Renderização do Formulário Dinâmico
    ========================================================================== */
-function renderForm(queryPath, moduleTitle, fields, description = '', executeMode = '', server = '') {
+function renderForm(queryPath, moduleTitle, fields, description = '', executeMode = '', server = '', timeout = 60) {
     // Atualizar títulos
     formTitle.innerText = moduleTitle;
     formSubtitle.innerText = queryPath.replace(/\//g, ' > ');
@@ -476,6 +477,20 @@ function renderForm(queryPath, moduleTitle, fields, description = '', executeMod
                 <span style="vertical-align: middle;">Execução: ${executeMode}</span>
             `;
             metaContainer.appendChild(modeBadge);
+            hasMeta = true;
+        }
+
+        if (timeout) {
+            const timeoutBadge = document.createElement('span');
+            timeoutBadge.className = 'meta-badge timeout';
+            timeoutBadge.innerHTML = `
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 4px; vertical-align: middle;">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <polyline points="12 6 12 12 16 14"></polyline>
+                </svg>
+                <span style="vertical-align: middle;">Timeout: ${timeout}s</span>
+            `;
+            metaContainer.appendChild(timeoutBadge);
             hasMeta = true;
         }
 

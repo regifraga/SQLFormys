@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"sqlformys/internal/domain"
 	"sqlformys/internal/engine"
@@ -97,6 +98,7 @@ func (s *queryService) GetMetadata(basePath, queryPath string) (domain.MetadataR
 		Server:      parser.Server,
 		Description: parser.Description,
 		ExecuteMode: parser.ExecuteMode,
+		Timeout:     parser.Timeout,
 		Fields:      parser.Fields,
 	}, nil
 }
@@ -115,6 +117,13 @@ func (s *queryService) ExecuteQuery(ctx context.Context, basePath, queryPath str
 
 	driver := defaultDriver
 	dsn := defaultDsn
+
+	timeout := 60
+	if parser.Timeout > 0 {
+		timeout = parser.Timeout
+	}
+	ctx, cancel := context.WithTimeout(ctx, time.Duration(timeout)*time.Second)
+	defer cancel()
 
 	finalSQL := engine.InjectValues(string(content), payload, parser.Fields, driver)
 

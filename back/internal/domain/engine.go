@@ -26,6 +26,7 @@ type MetadataResponse struct {
 	Server      string  `json:"server"`
 	Description string  `json:"description"`
 	ExecuteMode string  `json:"executeMode"`
+	Timeout     int     `json:"timeout"`
 	Fields      []Field `json:"fields"`
 }
 
