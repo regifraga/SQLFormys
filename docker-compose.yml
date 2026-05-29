@@ -7,60 +7,60 @@ services:
   # que roda perfeitamente em x64. Ele consome <500MB de RAM, 
   # sendo drasticamente mais leve que o SQL Server Express/Developer.
   #---------------------------------------------------------
-  db:
-    image: mcr.microsoft.com/azure-sql-edge:latest
-    container_name: sqlformys-db
-    restart: unless-stopped
-    env_file:
-      - .env
-    ports:
-      - "1433:1433"
-    environment:
-      - ACCEPT_EULA=Y
-      - SA_PASSWORD=${SA_PASSWORD}
-      - MSSQL_PID=Developer
-    volumes:
-      - sqldata:/var/opt/mssql
-
   # db:
-  #   image: postgres:15-alpine
+  #   image: mcr.microsoft.com/azure-sql-edge:latest
   #   container_name: sqlformys-db
   #   restart: unless-stopped
   #   env_file:
   #     - .env
   #   ports:
-  #     - "5432:5432"
+  #     - "1433:1433"
   #   environment:
-  #     - POSTGRES_USER=${POSTGRES_USER:-postgres}
-  #     - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}
-  #     - POSTGRES_DB=${POSTGRES_DB:-sqlformys}
+  #     - ACCEPT_EULA=Y
+  #     - SA_PASSWORD=${SA_PASSWORD}
+  #     - MSSQL_PID=Developer
   #   volumes:
-  #     - pgdata:/var/lib/postgresql/data
+  #     - sqldata:/var/opt/mssql
+
+  db:
+    image: postgres:15-alpine
+    container_name: sqlformys-db
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-postgres}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}
+      - POSTGRES_DB=${POSTGRES_DB:-sqlformys}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
 
 
   #---------------------------------------------------------
   # Backend API (Go)
   #---------------------------------------------------------
-  api:
-    build:
-      context: ./back
-      dockerfile: Dockerfile
-    container_name: sqlformys-api
-    restart: unless-stopped
-    env_file:
-      - .env
-    ports:
-      - "8080:8080"
-    depends_on:
-      - db
-    environment:
-      - PORT=${PORT}
-      - DB_DRIVER=${DB_DRIVER}
-      # String de conexão lida do .env (usando o alias 'db' do compose)
-      - DB_DSN=${DB_DSN}
-      - QUERIES_BASE_PATH=${QUERIES_BASE_PATH}
-    volumes:
-      - ./back/queries:/app/queries
+  # api:
+  #   build:
+  #     context: ./back
+  #     dockerfile: Dockerfile
+  #   container_name: sqlformys-api
+  #   restart: unless-stopped
+  #   env_file:
+  #     - .env
+  #   ports:
+  #     - "8080:8080"
+  #   depends_on:
+  #     - db
+  #   environment:
+  #     - PORT=${PORT}
+  #     - DB_DRIVER=${DB_DRIVER}
+  #     # String de conexão lida do .env (usando o alias 'db' do compose)
+  #     - DB_DSN=${DB_DSN}
+  #     - QUERIES_BASE_PATH=${QUERIES_BASE_PATH}
+  #   volumes:
+  #     - ./back/queries:/app/queries
 
   #---------------------------------------------------------
   # Frontend Web (NGINX)
@@ -77,12 +77,12 @@ services:
       - API_BASE_URL=${API_BASE_URL:-http://localhost:8080/api}
     ports:
       - "3000:80"
-    depends_on:
-      - api
+    # depends_on:
+    #   - api
 
 volumes:
   sqldata:
     name: sqlformys-sqldata
-  # pgdata:
-  #   name: sqlformys-pgdata
+  pgdata:
+    name: sqlformys-pgdata
 
