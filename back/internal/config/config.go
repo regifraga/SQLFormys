@@ -13,6 +13,7 @@ type Config struct {
 	DBDriver        string
 	DBDsn           string
 	QueriesBasePath string
+	ProductName     string
 	// Adicionar configurações de JWT aqui futuramente
 }
 
@@ -50,12 +51,15 @@ func Load() *Config {
 		queriesBasePath = "queries"
 	}
 
+	productName := os.Getenv("PRODUCT_NAME")
+
 	return &Config{
 		Environment:     env,
 		Port:            port,
 		DBDriver:        dbDriver,
 		DBDsn:           dbDsn,
 		QueriesBasePath: queriesBasePath,
+		ProductName:     productName,
 	}
 }
 

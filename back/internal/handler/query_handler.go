@@ -21,6 +21,11 @@ func NewQueryHandler(svc domain.DynamicQueryService) *QueryHandler {
 	}
 }
 
+type ProjectsResponse struct {
+	Projects    []domain.TreeNode `json:"projects"`
+	ProductName string            `json:"productName,omitempty"`
+}
+
 func (h *QueryHandler) ListProjects(w http.ResponseWriter, r *http.Request) {
 	// Base path onde as queries estão armazenadas localmente (configurável via env)
 	basePath := h.cfg.QueriesBasePath
@@ -32,7 +37,11 @@ func (h *QueryHandler) ListProjects(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(projects)
+	response := ProjectsResponse{
+		Projects:    projects,
+		ProductName: h.cfg.ProductName,
+	}
+	json.NewEncoder(w).Encode(response)
 }
 
 func (h *QueryHandler) GetMetadata(w http.ResponseWriter, r *http.Request) {

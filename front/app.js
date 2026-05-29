@@ -15,6 +15,8 @@ const btnCancel = document.getElementById('btn-cancel');
 const btnClear = document.getElementById('btn-clear');
 const btnExecute = document.getElementById('btn-execute');
 const toastContainer = document.getElementById('toast-container');
+const searchInput = document.getElementById('search-modules');
+const clearSearchBtn = document.getElementById('clear-search');
 
 // Elementos da Grid
 const gridContainer = document.getElementById('grid-container');
@@ -26,6 +28,7 @@ const resultTable = document.getElementById('result-table');
 // Estado atual
 let currentQueryPath = null;
 let currentFields = [];
+let allProjects = [];
 
 /* ==========================================================================
    Inicialização
@@ -74,6 +77,53 @@ document.addEventListener('DOMContentLoaded', () => {
     btnClear.addEventListener('click', handleClear);
     btnExecute.addEventListener('click', handleExecute);
 
+    // Eventos de Filtro de Módulos
+    if (searchInput) {
+        searchInput.addEventListener('input', () => {
+            const value = searchInput.value.trim();
+            if (value !== '') {
+                if (clearSearchBtn) clearSearchBtn.classList.remove('hidden');
+                const filtered = filterTree(allProjects, value);
+                renderTree(filtered, treeNavigation, true);
+            } else {
+                if (clearSearchBtn) clearSearchBtn.classList.add('hidden');
+                renderTree(allProjects, treeNavigation, false);
+            }
+        });
+
+        searchInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                e.preventDefault();
+                clearSearch(true);
+            }
+        });
+    }
+
+    if (clearSearchBtn) {
+        clearSearchBtn.addEventListener('click', () => {
+            clearSearch(true);
+        });
+    }
+
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            if (searchInput && searchInput.value !== '') {
+                clearSearch(false);
+            }
+        }
+    });
+
+    function clearSearch(shouldFocus = false) {
+        if (searchInput) {
+            searchInput.value = '';
+            if (shouldFocus) searchInput.focus();
+        }
+        if (clearSearchBtn) {
+            clearSearchBtn.classList.add('hidden');
+        }
+        renderTree(allProjects, treeNavigation, false);
+    }
+
     dynamicForm.addEventListener('keydown', (e) => {
         if (e.key === 'Escape') {
             e.preventDefault();
@@ -98,7 +148,19 @@ async function loadProjects() {
         if (!response.ok) throw new Error('Falha ao carregar estrutura de projetos');
         
         const data = await response.json();
-        renderTree(data, treeNavigation);
+        const projects = Array.isArray(data) ? data : (data.projects || []);
+        const productName = (data && !Array.isArray(data)) ? data.productName : "";
+        
+        allProjects = projects;
+        renderTree(projects, treeNavigation);
+
+        if (productName) {
+            document.title = `SQLFormys (${productName})`;
+            const logoText = document.querySelector('.logo span');
+            if (logoText) {
+                logoText.textContent = `SQLFormys (${productName})`;
+            }
+        }
     } catch (error) {
         console.error(error);
         treeNavigation.innerHTML = '<div class="loading-state" style="color: var(--error-color);">Erro ao carregar menu.</div>';
@@ -190,7 +252,7 @@ async function executeQuery(payload) {
 /* ==========================================================================
    Renderização do Menu Lateral em Árvore (Tree View)
    ========================================================================== */
-function renderTree(nodes, container) {
+function renderTree(nodes, container, isSearching = false) {
     container.innerHTML = ''; // Limpar loading state
 
     if (!nodes || nodes.length === 0) {
@@ -224,8 +286,8 @@ function renderTree(nodes, container) {
                 const childrenContainer = document.createElement('div');
                 childrenContainer.className = 'tree-folder-content';
 
-                // Nível 0 aberto por padrão
-                if (level === 0) {
+                // Nível 0 aberto por padrão ou todos abertos se buscando
+                if (level === 0 || isSearching) {
                     childrenContainer.classList.add('open');
                     folderHeader.classList.add('active');
                 }
@@ -537,4 +599,36 @@ function showToast(title, message, type = 'success') {
             toast.remove();
         }, 300); // Tempo da animação CSS
     }, 5000);
+}
+
+/* ==========================================================================
+   Funções Auxiliares de Filtro
+   ========================================================================== */
+function filterTree(nodes, searchTerm) {
+    if (!searchTerm) return nodes;
+    
+    const term = searchTerm.toLowerCase();
+    
+    function filterNode(node) {
+        if (node.type === 'module') {
+            const matches = node.name.toLowerCase().includes(term);
+            return matches ? { ...node } : null;
+        } else if (node.type === 'folder') {
+            if (!node.children) return null;
+            const filteredChildren = node.children
+                .map(filterNode)
+                .filter(child => child !== null);
+                
+            if (filteredChildren.length > 0) {
+                return {
+                    ...node,
+                    children: filteredChildren
+                };
+            }
+            return null;
+        }
+        return null;
+    }
+    
+    return nodes.map(filterNode).filter(node => node !== null);
 }

@@ -40,6 +40,23 @@
                 </button>
             </div>
             
+            <!-- Filtro de Módulos -->
+            <div class="sidebar-search">
+                <div class="search-input-wrapper">
+                    <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="11" cy="11" r="8"></circle>
+                        <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                    </svg>
+                    <input type="text" id="search-modules" placeholder="Filtrar módulos..." autocomplete="off">
+                    <button type="button" id="clear-search" class="clear-btn hidden" aria-label="Limpar filtro">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <line x1="18" y1="6" x2="6" y2="18"></line>
+                            <line x1="6" y1="6" x2="18" y2="18"></line>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+            
             <nav class="sidebar-nav tree-nav" id="tree-navigation">
                 <!-- Árvore de Projetos e Módulos (Renderizado via JS) -->
                 <div class="loading-state">Carregando estrutura...</div>
