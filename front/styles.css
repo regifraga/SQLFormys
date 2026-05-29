@@ -902,3 +902,52 @@ body.is-resizing .main-content {
 .favorite-btn.is-favorite {
     color: #f59e0b; /* Âmbar */
 }
+
+/* ==========================================================================
+   Ações da Grid e Botões de Exportação
+   ========================================================================== */
+.grid-card .card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
+}
+
+.header-title-group {
+    display: flex;
+    flex-direction: column;
+}
+
+.grid-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.btn-sm {
+    padding: 6px 12px;
+    font-size: 0.75rem;
+    height: 32px;
+}
+
+#btn-export-csv:hover,
+#btn-export-excel:hover {
+    border-color: var(--primary-color);
+    color: var(--primary-color);
+    background-color: rgba(59, 130, 246, 0.05);
+}
+
+.grid-search {
+    max-width: 300px;
+    margin-left: auto;
+}
+
+@media (max-width: 768px) {
+    .grid-search {
+        max-width: 100%;
+        margin: 8px 0;
+        order: 3;
+    }
+}
+

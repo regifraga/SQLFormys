@@ -24,11 +24,18 @@ const resultThead = document.getElementById('result-thead');
 const resultTbody = document.getElementById('result-tbody');
 const gridEmptyState = document.getElementById('grid-empty-state');
 const resultTable = document.getElementById('result-table');
+const btnExportCSV = document.getElementById('btn-export-csv');
+const btnExportExcel = document.getElementById('btn-export-excel');
+const gridActions = document.querySelector('.grid-actions');
+const gridSearchContainer = document.getElementById('grid-search-container');
+const gridSearchInput = document.getElementById('search-grid');
+const clearGridSearchBtn = document.getElementById('clear-grid-search');
 
 // Estado atual
 let currentQueryPath = null;
 let currentFields = [];
 let allProjects = [];
+let currentQueryResult = null;
 
 /* ==========================================================================
    Inicialização
@@ -77,6 +84,13 @@ document.addEventListener('DOMContentLoaded', () => {
     btnClear.addEventListener('click', handleClear);
     btnExecute.addEventListener('click', handleExecute);
 
+    if (btnExportCSV) {
+        btnExportCSV.addEventListener('click', exportToCSV);
+    }
+    if (btnExportExcel) {
+        btnExportExcel.addEventListener('click', exportToExcel);
+    }
+
     // Eventos de Filtro de Módulos
     if (searchInput) {
         searchInput.addEventListener('input', () => {
@@ -105,10 +119,36 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    // Eventos de Filtro da Grid
+    if (gridSearchInput) {
+        gridSearchInput.addEventListener('input', () => {
+            filterGrid();
+        });
+
+        gridSearchInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                e.preventDefault();
+                clearGridSearch(true);
+            } else if (e.key === 'Enter') {
+                e.preventDefault();
+                gridSearchInput.blur();
+            }
+        });
+    }
+
+    if (clearGridSearchBtn) {
+        clearGridSearchBtn.addEventListener('click', () => {
+            clearGridSearch(true);
+        });
+    }
+
     document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape') {
             if (searchInput && searchInput.value !== '') {
                 clearSearch(false);
+            }
+            if (gridSearchInput && gridSearchInput.value !== '') {
+                clearGridSearch(false);
             }
         }
     });
@@ -122,6 +162,14 @@ document.addEventListener('DOMContentLoaded', () => {
             clearSearchBtn.classList.add('hidden');
         }
         renderTree(allProjects, treeNavigation, false);
+    }
+
+    function clearGridSearch(shouldFocus = false) {
+        if (gridSearchInput) {
+            gridSearchInput.value = '';
+            if (shouldFocus) gridSearchInput.focus();
+        }
+        filterGrid();
     }
 
     dynamicForm.addEventListener('keydown', (e) => {
@@ -205,6 +253,8 @@ async function executeQuery(payload) {
     btnExecute.disabled = true;
     const originalText = btnExecute.innerText;
     btnExecute.innerText = 'Executando...';
+
+    currentQueryResult = null;
 
     // Limpar tempo de execução anterior
     const executionTimeEl = document.getElementById('execution-time');
@@ -514,6 +564,16 @@ function handleCancel() {
     
     currentQueryPath = null;
     currentFields = [];
+    currentQueryResult = null;
+    if (gridActions) {
+        gridActions.classList.add('hidden');
+    }
+    if (gridSearchContainer) {
+        gridSearchContainer.classList.add('hidden');
+    }
+    if (gridSearchInput) {
+        gridSearchInput.value = '';
+    }
 }
 
 function handleClear() {
@@ -551,6 +611,7 @@ function handleExecute() {
    Renderização da Grid de Resultados
    ========================================================================== */
 function renderGrid(resultData, duration = null) {
+    currentQueryResult = resultData;
     gridContainer.classList.remove('hidden');
     resultThead.innerHTML = '';
     resultTbody.innerHTML = '';
@@ -568,7 +629,27 @@ function renderGrid(resultData, duration = null) {
         }
         resultTable.classList.add('hidden');
         gridEmptyState.classList.remove('hidden');
+        if (gridActions) {
+            gridActions.classList.add('hidden');
+        }
+        if (gridSearchContainer) {
+            gridSearchContainer.classList.add('hidden');
+        }
         return;
+    }
+
+    if (gridActions) {
+        gridActions.classList.remove('hidden');
+    }
+
+    if (gridSearchContainer) {
+        gridSearchContainer.classList.remove('hidden');
+        if (gridSearchInput) {
+            gridSearchInput.value = '';
+        }
+        if (clearGridSearchBtn) {
+            clearGridSearchBtn.classList.add('hidden');
+        }
     }
 
     if (gridTitle) {
@@ -627,6 +708,58 @@ function renderGrid(resultData, duration = null) {
     });
 }
 
+function filterGrid() {
+    if (!currentQueryResult) return;
+    const value = gridSearchInput ? gridSearchInput.value.trim() : '';
+    const term = value.toLowerCase();
+    
+    // Mostrar/esconder botão de limpar
+    if (clearGridSearchBtn) {
+        if (value !== '') {
+            clearGridSearchBtn.classList.remove('hidden');
+        } else {
+            clearGridSearchBtn.classList.add('hidden');
+        }
+    }
+    
+    const rows = resultTbody.querySelectorAll('tr');
+    let visibleCount = 0;
+    
+    rows.forEach(tr => {
+        let match = false;
+        tr.querySelectorAll('td').forEach(td => {
+            if (td.textContent.toLowerCase().includes(term)) {
+                match = true;
+            }
+        });
+        
+        if (term === '' || match) {
+            tr.classList.remove('hidden');
+            visibleCount++;
+        } else {
+            tr.classList.add('hidden');
+        }
+    });
+
+    const gridTitle = document.getElementById('grid-title');
+    if (gridTitle) {
+        const totalCount = currentQueryResult.rows ? currentQueryResult.rows.length : 0;
+        if (term === '') {
+            gridTitle.innerText = `Resultados (${totalCount.toLocaleString('pt-BR')})`;
+        } else {
+            gridTitle.innerText = `Resultados (${visibleCount.toLocaleString('pt-BR')} de ${totalCount.toLocaleString('pt-BR')})`;
+        }
+    }
+
+    if (visibleCount === 0 && term !== '') {
+        resultTable.classList.add('hidden');
+        gridEmptyState.classList.remove('hidden');
+    } else {
+        resultTable.classList.remove('hidden');
+        gridEmptyState.classList.add('hidden');
+    }
+}
+
 /* ==========================================================================
    Sistema de Notificações (Toasts)
    ========================================================================== */
@@ -655,6 +788,155 @@ function showToast(title, message, type = 'success') {
             toast.remove();
         }, 300); // Tempo da animação CSS
     }, 5000);
+}
+
+/* ==========================================================================
+   Funções de Exportação (CSV e Excel)
+   ========================================================================== */
+function getExportFilename(extension) {
+    if (!currentQueryPath) return `dados_exportados.${extension}`;
+    
+    // Extrair o nome do arquivo do caminho (ex: "projeto/pasta/modulo.sql" -> "modulo")
+    const parts = currentQueryPath.split('/');
+    const lastPart = parts[parts.length - 1];
+    const nameWithoutExt = lastPart.replace(/\.[^/.]+$/, "");
+    
+    // Formatar timestamp: YYYYMMDD_HHMMSS
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+    const hours = String(now.getHours()).padStart(2, '0');
+    const minutes = String(now.getMinutes()).padStart(2, '0');
+    const seconds = String(now.getSeconds()).padStart(2, '0');
+    
+    const timestamp = `${year}${month}${day}_${hours}${minutes}${seconds}`;
+    return `${nameWithoutExt}_${timestamp}.${extension}`;
+}
+
+function exportToCSV() {
+    if (!currentQueryResult || !currentQueryResult.columns || currentQueryResult.columns.length === 0) {
+        showToast('Exportar', 'Não há dados disponíveis para exportação.', 'error');
+        return;
+    }
+    
+    try {
+        const columns = currentQueryResult.columns;
+        let rows = currentQueryResult.rows;
+        
+        // Filtrar apenas o que está visível na grid
+        const searchValue = gridSearchInput ? gridSearchInput.value.trim() : '';
+        if (searchValue !== '') {
+            const term = searchValue.toLowerCase();
+            rows = rows.filter(row => {
+                return columns.some(col => {
+                    let val = row[col];
+                    if (val === null || val === undefined) val = '';
+                    else if (typeof val === 'object') val = JSON.stringify(val);
+                    else val = String(val);
+                    return val.toLowerCase().includes(term);
+                });
+            });
+        }
+        
+        // BOM (Byte Order Mark) para UTF-8 (permite acentuação correta no Excel em PT-BR)
+        let csvContent = '\uFEFF';
+        
+        // Cabeçalhos (envolvidos em aspas duplas, separados por vírgula)
+        csvContent += columns.map(col => `"${col.replace(/"/g, '""')}"`).join(',') + '\r\n';
+        
+        // Linhas de dados
+        rows.forEach(row => {
+            const rowValues = columns.map(col => {
+                let val = row[col];
+                if (val === null || val === undefined) {
+                    val = '';
+                } else if (typeof val === 'object') {
+                    val = JSON.stringify(val);
+                } else {
+                    val = String(val);
+                }
+                return `"${val.replace(/"/g, '""')}"`;
+            });
+            csvContent += rowValues.join(',') + '\r\n';
+        });
+        
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const filename = getExportFilename('csv');
+        
+        const link = document.createElement("a");
+        const url = URL.createObjectURL(blob);
+        link.setAttribute("href", url);
+        link.setAttribute("download", filename);
+        link.style.visibility = 'hidden';
+        document.body.appendChild(link);
+        
+        link.click();
+        
+        document.body.removeChild(link);
+        showToast('Exportar', `Arquivo CSV exportado com sucesso: ${filename}`, 'success');
+    } catch (error) {
+        console.error('Erro ao exportar CSV:', error);
+        showToast('Exportar', 'Erro ao exportar dados para CSV.', 'error');
+    }
+}
+
+function exportToExcel() {
+    if (!currentQueryResult || !currentQueryResult.columns || currentQueryResult.columns.length === 0) {
+        showToast('Exportar', 'Não há dados disponíveis para exportação.', 'error');
+        return;
+    }
+    
+    if (typeof XLSX === 'undefined') {
+        showToast('Exportar', 'Biblioteca Excel (SheetJS) não carregada.', 'error');
+        return;
+    }
+    
+    try {
+        const columns = currentQueryResult.columns;
+        let rows = currentQueryResult.rows;
+        
+        // Filtrar apenas o que está visível na grid
+        const searchValue = gridSearchInput ? gridSearchInput.value.trim() : '';
+        if (searchValue !== '') {
+            const term = searchValue.toLowerCase();
+            rows = rows.filter(row => {
+                return columns.some(col => {
+                    let val = row[col];
+                    if (val === null || val === undefined) val = '';
+                    else if (typeof val === 'object') val = JSON.stringify(val);
+                    else val = String(val);
+                    return val.toLowerCase().includes(term);
+                });
+            });
+        }
+        
+        // Montar matriz 2D com cabeçalho + dados
+        const sheetData = [columns];
+        
+        rows.forEach(row => {
+            sheetData.push(columns.map(col => {
+                let val = row[col];
+                if (val === null || val === undefined) return '';
+                if (typeof val === 'object') return JSON.stringify(val);
+                return val;
+            }));
+        });
+        
+        // Criar pasta de trabalho do Excel (Workbook) e planilha (Worksheet)
+        const ws = XLSX.utils.aoa_to_sheet(sheetData);
+        const wb = XLSX.utils.book_new();
+        
+        XLSX.utils.book_append_sheet(wb, ws, "Resultados");
+        
+        const filename = getExportFilename('xlsx');
+        XLSX.writeFile(wb, filename);
+        
+        showToast('Exportar', `Arquivo Excel exportado com sucesso: ${filename}`, 'success');
+    } catch (error) {
+        console.error('Erro ao exportar Excel:', error);
+        showToast('Exportar', 'Erro ao exportar dados para Excel.', 'error');
+    }
 }
 
 /* ==========================================================================
