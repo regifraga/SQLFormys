@@ -206,6 +206,15 @@ async function executeQuery(payload) {
     const originalText = btnExecute.innerText;
     btnExecute.innerText = 'Executando...';
 
+    // Limpar tempo de execução anterior
+    const executionTimeEl = document.getElementById('execution-time');
+    if (executionTimeEl) {
+        executionTimeEl.innerHTML = '';
+        executionTimeEl.classList.add('hidden');
+    }
+
+    const startTime = performance.now();
+
     try {
         const response = await fetch(`${API_BASE_URL}/queries/${currentQueryPath}`, {
             method: 'POST',
@@ -230,13 +239,15 @@ async function executeQuery(payload) {
         }
 
         const result = await response.json();
+        const endTime = performance.now();
+        const duration = endTime - startTime;
         
         // Tentar formatar a resposta se for JSON para a notificação
         let msg = result.message || 'Operação realizada com sucesso.';
         showToast('Sucesso', msg, 'success');
 
         // Mostrar Grid com resultados
-        renderGrid(result);
+        renderGrid(result, duration);
 
     } catch (error) {
         console.error(error);
@@ -539,16 +550,21 @@ function handleExecute() {
 /* ==========================================================================
    Renderização da Grid de Resultados
    ========================================================================== */
-function renderGrid(resultData) {
+function renderGrid(resultData, duration = null) {
     gridContainer.classList.remove('hidden');
     resultThead.innerHTML = '';
     resultTbody.innerHTML = '';
 
     const gridTitle = document.getElementById('grid-title');
+    const executionTimeEl = document.getElementById('execution-time');
 
     if (!resultData || !resultData.columns || resultData.columns.length === 0 || !resultData.rows || resultData.rows.length === 0) {
         if (gridTitle) {
             gridTitle.innerText = 'Resultados';
+        }
+        if (executionTimeEl) {
+            executionTimeEl.innerHTML = '';
+            executionTimeEl.classList.add('hidden');
         }
         resultTable.classList.add('hidden');
         gridEmptyState.classList.remove('hidden');
@@ -557,6 +573,25 @@ function renderGrid(resultData) {
 
     if (gridTitle) {
         gridTitle.innerText = `Resultados (${resultData.rows.length.toLocaleString('pt-BR')})`;
+    }
+
+    if (executionTimeEl && duration !== null) {
+        let timeStr = '';
+        if (duration < 1000) {
+            timeStr = `${duration.toFixed(0)} ms`;
+        } else {
+            timeStr = `${(duration / 1000).toFixed(2)} s`;
+        }
+        executionTimeEl.innerHTML = `
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="10"></circle>
+                <polyline points="12 6 12 12 16 14"></polyline>
+            </svg>
+            Tempo de execução: ${timeStr}
+        `;
+        executionTimeEl.classList.remove('hidden');
+    } else if (executionTimeEl) {
+        executionTimeEl.classList.add('hidden');
     }
 
     resultTable.classList.remove('hidden');

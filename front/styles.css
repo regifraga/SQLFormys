@@ -711,6 +711,23 @@ body.is-resizing .main-content {
 }
 
 /* ==========================================================================
+   Tempo de Execução da Consulta
+   ========================================================================== */
+.execution-time {
+    display: inline-flex;
+    align-items: center;
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    margin-top: 6px;
+    gap: 4px;
+}
+
+.execution-time svg {
+    color: var(--text-muted);
+    flex-shrink: 0;
+}
+
+/* ==========================================================================
    Tabela de Resultados (Grid)
    ========================================================================== */
 .data-table {
