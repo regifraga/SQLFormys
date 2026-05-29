@@ -28,6 +28,48 @@ func corsMiddleware(next http.Handler) http.Handler {
 	})
 }
 
+// responseWriterWrapper captura o status HTTP da resposta
+type responseWriterWrapper struct {
+	http.ResponseWriter
+	statusCode int
+}
+
+func (w *responseWriterWrapper) WriteHeader(code int) {
+	w.statusCode = code
+	w.ResponseWriter.WriteHeader(code)
+}
+
+func (w *responseWriterWrapper) Write(b []byte) (int, error) {
+	if w.statusCode == 0 {
+		w.statusCode = http.StatusOK
+	}
+	return w.ResponseWriter.Write(b)
+}
+
+// loggingMiddleware registra os detalhes de cada requisição HTTP recebida
+func loggingMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		wrapper := &responseWriterWrapper{ResponseWriter: w}
+
+		next.ServeHTTP(wrapper, r)
+
+		if wrapper.statusCode == 0 {
+			wrapper.statusCode = http.StatusOK
+		}
+
+		duration := time.Since(start)
+		log.Printf("[%s] %s %s de %s - Status: %d - Duração: %v",
+			r.Method,
+			r.RequestURI,
+			r.Proto,
+			r.RemoteAddr,
+			wrapper.statusCode,
+			duration,
+		)
+	})
+}
+
 func main() {
 	// Carrega configurações
 	cfg := config.Load()
@@ -43,7 +85,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("Falha crítica: não foi possível conectar ao banco de dados: %v", err)
 	}
-	defer db.Close()
+	db.Close()
 
 	fmt.Println("Conexão com o banco de dados estabelecida com sucesso!")
 
@@ -51,7 +93,7 @@ func main() {
 	router := handler.NewRouter()
 
 	fmt.Printf("Servidor iniciado na porta %s (Ambiente: %s)\n", cfg.Port, cfg.Environment)
-	if err := http.ListenAndServe(":"+cfg.Port, corsMiddleware(router)); err != nil {
+	if err := http.ListenAndServe(":"+cfg.Port, corsMiddleware(loggingMiddleware(router))); err != nil {
 		log.Fatalf("Erro ao iniciar o servidor: %v", err)
 	}
 }

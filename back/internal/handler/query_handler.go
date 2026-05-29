@@ -3,6 +3,7 @@ package handler
 import (
 	"encoding/json"
 	"io"
+	"log"
 	"net/http"
 
 	"sqlformys/internal/config"
@@ -32,6 +33,7 @@ func (h *QueryHandler) ListProjects(w http.ResponseWriter, r *http.Request) {
 
 	projects, err := h.svc.ListProjects(basePath)
 	if err != nil {
+		log.Printf("ERROR: Falha ao listar projetos no diretório %s: %v", basePath, err)
 		respondWithError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -55,6 +57,7 @@ func (h *QueryHandler) GetMetadata(w http.ResponseWriter, r *http.Request) {
 
 	metadata, err := h.svc.GetMetadata(basePath, filepathParam)
 	if err != nil {
+		log.Printf("ERROR: Falha ao carregar metadados do arquivo %s (base: %s): %v", filepathParam, basePath, err)
 		respondWithError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -78,6 +81,7 @@ func (h *QueryHandler) ExecuteQuery(w http.ResponseWriter, r *http.Request) {
 		if err == io.EOF {
 			payload = make(map[string]interface{})
 		} else {
+			log.Printf("ERROR: Falha ao decodificar JSON body em ExecuteQuery para %s: %v", filepathParam, err)
 			respondWithError(w, http.StatusBadRequest, "Formato de payload inválido, esperado JSON Object")
 			return
 		}
@@ -85,6 +89,8 @@ func (h *QueryHandler) ExecuteQuery(w http.ResponseWriter, r *http.Request) {
 
 	results, finalSQL, err := h.svc.ExecuteQuery(r.Context(), basePath, filepathParam, payload, h.cfg.DBDriver, h.cfg.DBDsn)
 	if err != nil {
+		log.Printf("ERROR: Falha na execução da query %s | Driver: %s | Payload: %+v | Erro: %v | SQL Gerado: %s",
+			filepathParam, h.cfg.DBDriver, payload, err, finalSQL)
 		var debugQuery string
 		if h.cfg.Environment == "development" || h.cfg.Environment == "local" {
 			debugQuery = finalSQL
