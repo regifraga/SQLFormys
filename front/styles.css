@@ -364,6 +364,7 @@ body.is-resizing .main-content {
 .tree-module-link {
     display: flex;
     align-items: center;
+    justify-content: space-between;
     padding: 8px 12px;
     color: var(--text-secondary);
     font-size: 0.875rem;
@@ -372,6 +373,13 @@ body.is-resizing .main-content {
     transition: all 0.2s;
     cursor: pointer;
     user-select: none;
+}
+
+.tree-module-info {
+    display: flex;
+    align-items: center;
+    min-width: 0;
+    flex: 1;
 }
 
 .tree-module-link:hover {
@@ -733,4 +741,147 @@ body.is-resizing .main-content {
 
 .data-table tbody tr:hover {
     background-color: var(--bg-main);
+}
+
+/* ==========================================================================
+   Área de Favoritos e Estilos Adicionais
+   ========================================================================== */
+.sidebar.collapsed .sidebar-favorites {
+    display: none;
+}
+
+.sidebar-favorites {
+    padding: 0 12px 12px;
+    border-bottom: 1px solid var(--border-color);
+    margin-bottom: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.sidebar-favorites.hidden {
+    display: none !important;
+}
+
+.favorites-header {
+    display: flex;
+    align-items: center;
+    padding: 4px 8px;
+    margin-bottom: 4px;
+}
+
+.favorites-label {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    letter-spacing: 1px;
+    text-transform: uppercase;
+}
+
+.favorites-list {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.favorite-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 10px;
+    border-radius: 6px;
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+    background-color: rgba(59, 130, 246, 0.02);
+    border: 1px solid transparent;
+    transition: all 0.2s ease;
+    cursor: pointer;
+    user-select: none;
+}
+
+.favorite-item:hover {
+    color: var(--text-primary);
+    background-color: var(--bg-main);
+    border-color: var(--border-color);
+}
+
+.favorite-item.active {
+    color: var(--primary-color);
+    font-weight: 500;
+    background-color: rgba(59, 130, 246, 0.08);
+    border-color: rgba(59, 130, 246, 0.15);
+}
+
+.favorite-item.unavailable {
+    color: var(--text-muted);
+    background-color: rgba(239, 68, 68, 0.02);
+    border: 1px dashed var(--border-color);
+    cursor: not-allowed;
+}
+
+.favorite-item.unavailable:hover {
+    background-color: rgba(239, 68, 68, 0.05);
+    border-color: rgba(239, 68, 68, 0.2);
+}
+
+.favorite-item-info {
+    display: flex;
+    align-items: center;
+    min-width: 0;
+    flex: 1;
+}
+
+.favorite-item-title {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.favorite-item.unavailable .favorite-item-title {
+    text-decoration: line-through;
+}
+
+.favorite-remove-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 4px;
+    border-radius: 4px;
+    color: var(--text-muted);
+    transition: all 0.2s;
+    margin-left: 8px;
+    flex-shrink: 0;
+}
+
+.favorite-remove-btn:hover {
+    background-color: rgba(239, 68, 68, 0.1);
+    color: var(--error-color);
+}
+
+/* Botão de Favorito na Árvore */
+.favorite-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 4px;
+    border-radius: 4px;
+    color: var(--text-muted);
+    opacity: 0;
+    transition: opacity 0.2s, color 0.2s, background-color 0.2s;
+    margin-left: 8px;
+    flex-shrink: 0;
+}
+
+.tree-module-link:hover .favorite-btn,
+.favorite-btn.is-favorite {
+    opacity: 1;
+}
+
+.favorite-btn:hover {
+    background-color: var(--border-color);
+    color: #f59e0b; /* Âmbar */
+}
+
+.favorite-btn.is-favorite {
+    color: #f59e0b; /* Âmbar */
 }

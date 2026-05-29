@@ -153,6 +153,7 @@ async function loadProjects() {
         
         allProjects = projects;
         renderTree(projects, treeNavigation);
+        renderFavorites();
 
         if (productName) {
             document.title = `SQLFormys (${productName})`;
@@ -313,23 +314,42 @@ function renderTree(nodes, container, isSearching = false) {
                 // node.type === 'module'
                 const moduleLink = document.createElement('a');
                 moduleLink.className = 'tree-module-link module-link';
+                moduleLink.dataset.path = node.path;
                 moduleLink.style.paddingLeft = `${16 + (level * 16)}px`;
+                
+                const isFav = getFavorites().includes(node.path);
+                const isActive = (node.path === currentQueryPath);
+                if (isActive) {
+                    moduleLink.classList.add('active');
+                }
+                
                 moduleLink.innerHTML = `
-                    <svg class="tree-icon module-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-                        <polyline points="14 2 14 8 20 8"></polyline>
-                        <line x1="16" y1="13" x2="8" y2="13"></line>
-                        <line x1="16" y1="17" x2="8" y2="17"></line>
-                        <polyline points="10 9 9 9 8 9"></polyline>
-                    </svg>
-                    <span class="tree-title">${node.name}</span>
+                    <div class="tree-module-info">
+                        <svg class="tree-icon module-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                            <polyline points="14 2 14 8 20 8"></polyline>
+                            <line x1="16" y1="13" x2="8" y2="13"></line>
+                            <line x1="16" y1="17" x2="8" y2="17"></line>
+                            <polyline points="10 9 9 9 8 9"></polyline>
+                        </svg>
+                        <span class="tree-title">${node.name}</span>
+                    </div>
+                    <button class="favorite-btn ${isFav ? 'is-favorite' : ''}" title="${isFav ? 'Remover dos favoritos' : 'Adicionar aos favoritos'}">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="${isFav ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
+                        </svg>
+                    </button>
                 `;
 
                 moduleLink.addEventListener('click', (e) => {
+                    if (e.target.closest('.favorite-btn')) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        toggleFavorite(node.path);
+                        return;
+                    }
                     e.preventDefault();
-                    document.querySelectorAll('.module-link').forEach(l => l.classList.remove('active'));
-                    moduleLink.classList.add('active');
-
+                    setActiveModule(node.path);
                     loadFormFields(node.path, node.name);
                 });
 
@@ -477,8 +497,9 @@ function handleCancel() {
     gridContainer.classList.add('hidden');
     emptyState.classList.remove('hidden');
     
-    // Remover classe ativa do menu lateral
+    // Remover classe ativa do menu lateral e favoritos
     document.querySelectorAll('.module-link').forEach(l => l.classList.remove('active'));
+    document.querySelectorAll('.favorite-item').forEach(item => item.classList.remove('active'));
     
     currentQueryPath = null;
     currentFields = [];
@@ -631,4 +652,171 @@ function filterTree(nodes, searchTerm) {
     }
     
     return nodes.map(filterNode).filter(node => node !== null);
+}
+
+/* ==========================================================================
+   Gerenciamento de Favoritos (LocalStorage)
+   ========================================================================== */
+function getFavorites() {
+    try {
+        const stored = localStorage.getItem('sqlformys_favorites');
+        return stored ? JSON.parse(stored) : [];
+    } catch (e) {
+        console.error('Erro ao ler favoritos do LocalStorage', e);
+        return [];
+    }
+}
+
+function saveFavorites(favorites) {
+    try {
+        localStorage.setItem('sqlformys_favorites', JSON.stringify(favorites));
+    } catch (e) {
+        console.error('Erro ao salvar favoritos no LocalStorage', e);
+    }
+}
+
+function toggleFavorite(path) {
+    let favorites = getFavorites();
+    const index = favorites.indexOf(path);
+    if (index > -1) {
+        favorites.splice(index, 1);
+        showToast('Favoritos', 'Módulo removido dos favoritos.', 'success');
+    } else {
+        favorites.push(path);
+        showToast('Favoritos', 'Módulo adicionado aos favoritos.', 'success');
+    }
+    saveFavorites(favorites);
+    
+    // Atualizar visualizações
+    renderFavorites();
+    
+    // Re-renderizar a árvore para atualizar as estrelas
+    const term = searchInput ? searchInput.value.trim() : '';
+    if (term !== '') {
+        const filtered = filterTree(allProjects, term);
+        renderTree(filtered, treeNavigation, true);
+    } else {
+        renderTree(allProjects, treeNavigation, false);
+    }
+}
+
+function getAllModulesMap(nodes) {
+    const map = new Map();
+    function traverse(nodeList) {
+        if (!nodeList) return;
+        nodeList.forEach(node => {
+            if (node.type === 'module') {
+                map.set(node.path, node);
+            } else if (node.type === 'folder' && node.children) {
+                traverse(node.children);
+            }
+        });
+    }
+    traverse(nodes);
+    return map;
+}
+
+function setActiveModule(path) {
+    // Remover classe ativa de todos
+    document.querySelectorAll('.module-link').forEach(l => l.classList.remove('active'));
+    document.querySelectorAll('.favorite-item').forEach(item => item.classList.remove('active'));
+    
+    // Adicionar classe ativa na árvore
+    const treeLink = document.querySelector(`.tree-module-link[data-path="${CSS.escape(path)}"]`);
+    if (treeLink) {
+        treeLink.classList.add('active');
+    }
+    
+    // Adicionar classe ativa nos favoritos
+    const favoriteItem = document.querySelector(`.favorite-item[data-path="${CSS.escape(path)}"]`);
+    if (favoriteItem) {
+        favoriteItem.classList.add('active');
+    }
+}
+
+function renderFavorites() {
+    const container = document.getElementById('sidebar-favorites-container');
+    const listContainer = document.getElementById('sidebar-favorites-list');
+    if (!container || !listContainer) return;
+
+    const favorites = getFavorites();
+    
+    if (favorites.length === 0) {
+        container.classList.add('hidden');
+        return;
+    }
+    
+    container.classList.remove('hidden');
+    listContainer.innerHTML = '';
+    
+    const modulesMap = getAllModulesMap(allProjects);
+    
+    favorites.forEach(path => {
+        const moduleNode = modulesMap.get(path);
+        const itemEl = document.createElement('div');
+        itemEl.dataset.path = path;
+        
+        if (moduleNode) {
+            // Favorito disponível
+            itemEl.className = 'favorite-item';
+            if (currentQueryPath === path) {
+                itemEl.classList.add('active');
+            }
+            
+            itemEl.innerHTML = `
+                <div class="favorite-item-info">
+                    <svg class="tree-icon module-icon" style="margin-right: 8px; width: 14px; height: 14px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                        <polyline points="14 2 14 8 20 8"></polyline>
+                        <line x1="16" y1="13" x2="8" y2="13"></line>
+                        <line x1="16" y1="17" x2="8" y2="17"></line>
+                    </svg>
+                    <span class="favorite-item-title" title="${moduleNode.name}">${moduleNode.name}</span>
+                </div>
+                <button class="favorite-remove-btn" title="Remover dos favoritos">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
+                    </svg>
+                </button>
+            `;
+            
+            itemEl.addEventListener('click', (e) => {
+                if (e.target.closest('.favorite-remove-btn')) return;
+                setActiveModule(path);
+                loadFormFields(path, moduleNode.name);
+            });
+        } else {
+            // Favorito indisponível
+            itemEl.className = 'favorite-item unavailable';
+            itemEl.title = `Este módulo não está mais disponível no caminho: ${path}`;
+            
+            const displayName = path.split('/').pop() || path;
+            
+            itemEl.innerHTML = `
+                <div class="favorite-item-info">
+                    <svg class="tree-icon warning-icon" style="margin-right: 8px; width: 14px; height: 14px; color: var(--error-color);" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+                        <line x1="12" y1="9" x2="12" y2="13"></line>
+                        <line x1="12" y1="17" x2="12.01" y2="17"></line>
+                    </svg>
+                    <span class="favorite-item-title" title="${path}">${displayName} (Indisponível)</span>
+                </div>
+                <button class="favorite-remove-btn" title="Remover dos favoritos">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
+                    </svg>
+                </button>
+            `;
+        }
+        
+        const removeBtn = itemEl.querySelector('.favorite-remove-btn');
+        if (removeBtn) {
+            removeBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                toggleFavorite(path);
+            });
+        }
+        
+        listContainer.appendChild(itemEl);
+    });
 }
