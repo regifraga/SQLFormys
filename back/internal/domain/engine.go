@@ -22,7 +22,12 @@ type TreeNode struct {
 }
 
 // MetadataResponse is the return object for the GET metadata endpoint
-type MetadataResponse []Field
+type MetadataResponse struct {
+	Server      string  `json:"server"`
+	Description string  `json:"description"`
+	ExecuteMode string  `json:"executeMode"`
+	Fields      []Field `json:"fields"`
+}
 
 // QueryResult represents the result of a dynamic query execution, preserving column order.
 type QueryResult struct {

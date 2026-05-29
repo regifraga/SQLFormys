@@ -73,6 +73,20 @@ document.addEventListener('DOMContentLoaded', () => {
     btnCancel.addEventListener('click', handleCancel);
     btnClear.addEventListener('click', handleClear);
     btnExecute.addEventListener('click', handleExecute);
+
+    dynamicForm.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            e.preventDefault();
+            if (e.ctrlKey) {
+                handleCancel();
+            } else {
+                handleClear();
+            }
+        } else if (e.key === 'Enter') {
+            e.preventDefault();
+            handleExecute();
+        }
+    });
 });
 
 /* ==========================================================================
@@ -97,17 +111,25 @@ async function loadFormFields(queryPath, moduleTitle) {
         const response = await fetch(`${API_BASE_URL}/queries/${queryPath}`);
         if (!response.ok) throw new Error('Falha ao carregar campos do formulário');
         
-        const fields = await response.json();
+        const data = await response.json();
+        const fields = data.fields || [];
+        const description = data.description || '';
+        const executeMode = data.executeMode || '';
+        const server = data.server || '';
         
         currentQueryPath = queryPath;
         currentFields = fields;
 
-        renderForm(queryPath, moduleTitle, fields);
+        renderForm(queryPath, moduleTitle, fields, description, executeMode, server);
         
         // Esconder empty state e grid antiga, mostrar form
         emptyState.classList.add('hidden');
         gridContainer.classList.add('hidden');
         formContainer.classList.remove('hidden');
+
+        if (executeMode.toUpperCase() === 'AUTO') {
+            handleExecute();
+        }
 
     } catch (error) {
         console.error(error);
@@ -263,10 +285,63 @@ function renderTree(nodes, container) {
 /* ==========================================================================
    Renderização do Formulário Dinâmico
    ========================================================================== */
-function renderForm(queryPath, moduleTitle, fields) {
+function renderForm(queryPath, moduleTitle, fields, description = '', executeMode = '', server = '') {
     // Atualizar títulos
     formTitle.innerText = moduleTitle;
     formSubtitle.innerText = queryPath.replace(/\//g, ' > ');
+
+    // Atualizar descrição
+    const descEl = document.getElementById('form-description');
+    if (descEl) {
+        if (description) {
+            descEl.innerText = description;
+            descEl.classList.remove('hidden');
+        } else {
+            descEl.classList.add('hidden');
+        }
+    }
+
+    // Atualizar metadados (Server, ExecuteMode)
+    const metaContainer = document.getElementById('form-meta-container');
+    if (metaContainer) {
+        metaContainer.innerHTML = '';
+        let hasMeta = false;
+
+        if (server) {
+            const serverBadge = document.createElement('span');
+            serverBadge.className = 'meta-badge server';
+            serverBadge.innerHTML = `
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 4px; vertical-align: middle;">
+                    <rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect>
+                    <rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect>
+                    <line x1="6" y1="6" x2="6.01" y2="6"></line>
+                    <line x1="6" y1="18" x2="6.01" y2="18"></line>
+                </svg>
+                <span style="vertical-align: middle;">Servidor: ${server}</span>
+            `;
+            metaContainer.appendChild(serverBadge);
+            hasMeta = true;
+        }
+
+        if (executeMode) {
+            const modeBadge = document.createElement('span');
+            modeBadge.className = 'meta-badge execute-mode';
+            modeBadge.innerHTML = `
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 4px; vertical-align: middle;">
+                    <polygon points="5 3 19 12 5 21 5 3"></polygon>
+                </svg>
+                <span style="vertical-align: middle;">Execução: ${executeMode}</span>
+            `;
+            metaContainer.appendChild(modeBadge);
+            hasMeta = true;
+        }
+
+        if (hasMeta) {
+            metaContainer.classList.remove('hidden');
+        } else {
+            metaContainer.classList.add('hidden');
+        }
+    }
 
     // Limpar form
     dynamicForm.innerHTML = '';
@@ -386,10 +461,19 @@ function renderGrid(resultData) {
     resultThead.innerHTML = '';
     resultTbody.innerHTML = '';
 
+    const gridTitle = document.getElementById('grid-title');
+
     if (!resultData || !resultData.columns || resultData.columns.length === 0 || !resultData.rows || resultData.rows.length === 0) {
+        if (gridTitle) {
+            gridTitle.innerText = 'Resultados';
+        }
         resultTable.classList.add('hidden');
         gridEmptyState.classList.remove('hidden');
         return;
+    }
+
+    if (gridTitle) {
+        gridTitle.innerText = `Resultados (${resultData.rows.length.toLocaleString('pt-BR')})`;
     }
 
     resultTable.classList.remove('hidden');

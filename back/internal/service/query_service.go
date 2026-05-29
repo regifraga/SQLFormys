@@ -85,15 +85,20 @@ func (s *queryService) GetMetadata(basePath, queryPath string) (domain.MetadataR
 	sqlFilePath := filepath.Join(basePath, queryPath+".sql")
 	content, err := os.ReadFile(sqlFilePath)
 	if err != nil {
-		return nil, fmt.Errorf("erro ao ler arquivo SQL: %w", err)
+		return domain.MetadataResponse{}, fmt.Errorf("erro ao ler arquivo SQL: %w", err)
 	}
 
 	parser, err := engine.ParseMetadata(string(content))
 	if err != nil {
-		return nil, fmt.Errorf("erro ao fazer parse do SQL: %w", err)
+		return domain.MetadataResponse{}, fmt.Errorf("erro ao fazer parse do SQL: %w", err)
 	}
 
-	return parser.Fields, nil
+	return domain.MetadataResponse{
+		Server:      parser.Server,
+		Description: parser.Description,
+		ExecuteMode: parser.ExecuteMode,
+		Fields:      parser.Fields,
+	}, nil
 }
 
 func (s *queryService) ExecuteQuery(ctx context.Context, basePath, queryPath string, payload map[string]interface{}, defaultDriver, defaultDsn string) (domain.QueryResult, string, error) {

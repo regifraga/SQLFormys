@@ -8,12 +8,14 @@ import (
 
 func TestParseMetadata(t *testing.T) {
 	tests := []struct {
-		name        string
-		sqlContent  string
-		wantServer  string
-		wantFields  int
-		checkField  func(*testing.T, *SQLParser)
-		expectError bool
+		name            string
+		sqlContent      string
+		wantServer      string
+		wantDescription string
+		wantExecuteMode string
+		wantFields      int
+		checkField      func(*testing.T, *SQLParser)
+		expectError     bool
 	}{
 		{
 			name: "Full valid SQL with server and properties",
@@ -102,6 +104,19 @@ func TestParseMetadata(t *testing.T) {
 				assert.False(t, p.Fields[1].Required)
 			},
 		},
+		{
+			name: "With description and execute mode metadata",
+			sqlContent: "--SERVER=localhost\n" +
+				"--DESCRIPTION=Mais um teste IDIOTA!\n" +
+				"--EXECUTE_MODE=AUTO\n" +
+				"--<PROPERTIES>\n" +
+				"--SELECT @?#DT_INICIAL:DATE:8:=:Data Inicial\n" +
+				"--</PROPERTIES>",
+			wantServer:      "localhost",
+			wantDescription: "Mais um teste IDIOTA!",
+			wantExecuteMode: "AUTO",
+			wantFields:      1,
+		},
 	}
 
 	for _, tt := range tests {
@@ -113,6 +128,8 @@ func TestParseMetadata(t *testing.T) {
 			}
 			assert.NoError(t, err)
 			assert.Equal(t, tt.wantServer, parser.Server)
+			assert.Equal(t, tt.wantDescription, parser.Description)
+			assert.Equal(t, tt.wantExecuteMode, parser.ExecuteMode)
 			assert.Len(t, parser.Fields, tt.wantFields)
 			if tt.checkField != nil {
 				tt.checkField(t, parser)

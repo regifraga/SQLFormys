@@ -13,12 +13,20 @@ import (
 type SQLParser struct {
 	OriginalSQL string
 	Server      string
+	Description string
+	ExecuteMode string
 	Fields      []domain.Field
 }
 
 var (
 	// Matches --SERVER=10.123.43.126
 	serverRegex = regexp.MustCompile(`(?m)^--SERVER=(.*)$`)
+
+	// Matches --DESCRIPTION=...
+	descriptionRegex = regexp.MustCompile(`(?m)^--DESCRIPTION=(.*)$`)
+
+	// Matches --EXECUTE_MODE=...
+	executeModeRegex = regexp.MustCompile(`(?m)^--EXECUTE_MODE=(.*)$`)
 
 	// Matches the properties block, including multiline content
 	propertiesRegex = regexp.MustCompile(`(?si)--\s*<PROPERTIES>\s*\r?\n(.*?)\r?\n\s*--\s*</PROPERTIES>\s*`)
@@ -52,6 +60,18 @@ func ParseMetadata(sqlContent string) (*SQLParser, error) {
 	serverMatch := serverRegex.FindStringSubmatch(sqlContent)
 	if len(serverMatch) > 1 {
 		parser.Server = strings.TrimSpace(serverMatch[1])
+	}
+
+	// Extract Description if present
+	descriptionMatch := descriptionRegex.FindStringSubmatch(sqlContent)
+	if len(descriptionMatch) > 1 {
+		parser.Description = strings.TrimSpace(descriptionMatch[1])
+	}
+
+	// Extract ExecuteMode if present
+	executeModeMatch := executeModeRegex.FindStringSubmatch(sqlContent)
+	if len(executeModeMatch) > 1 {
+		parser.ExecuteMode = strings.TrimSpace(executeModeMatch[1])
 	}
 
 	// Extract Properties block

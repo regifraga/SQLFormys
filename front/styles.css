@@ -386,6 +386,58 @@ body.is-resizing .main-content {
     color: var(--text-secondary);
 }
 
+.form-description {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    margin-top: 10px;
+    margin-bottom: 4px;
+    line-height: 1.4;
+    padding: 8px 12px 8px 32px;
+    border-radius: 4px;
+    background-color: rgba(59, 130, 246, 0.03);
+    border-left: 2px solid rgba(59, 130, 246, 0.3);
+    position: relative;
+}
+
+.form-description::before {
+    content: "";
+    position: absolute;
+    left: 10px;
+    top: 9px;
+    width: 14px;
+    height: 14px;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='10'%3E%3C/circle%3E%3Cline x1='12' y1='16' x2='12' y2='12'%3E%3C/line%3E%3Cline x1='12' y1='8' x2='12.01' y2='8'%3E%3C/line%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-size: contain;
+}
+
+.form-meta-container {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 12px;
+}
+
+.meta-badge {
+    font-size: 0.75rem;
+    font-weight: 600;
+    padding: 4px 8px;
+    border-radius: 4px;
+    background-color: var(--bg-main);
+    color: var(--text-secondary);
+    display: inline-flex;
+    align-items: center;
+    border: 1px solid var(--border-color);
+}
+
+.meta-badge.server {
+    border-left: 3px solid #10b981;
+}
+
+.meta-badge.execute-mode {
+    border-left: 3px solid #8b5cf6;
+}
+
 .card-body {
     padding: 24px;
 }

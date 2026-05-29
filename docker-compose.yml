@@ -65,20 +65,20 @@ services:
   #---------------------------------------------------------
   # Frontend Web (NGINX)
   #---------------------------------------------------------
-  front:
-    build:
-      context: ./front
-      dockerfile: Dockerfile
-    container_name: sqlformys-front
-    restart: unless-stopped
-    env_file:
-      - .env
-    environment:
-      - API_BASE_URL=${API_BASE_URL:-http://localhost:8080/api}
-    ports:
-      - "3000:80"
-    # depends_on:
-    #   - api
+  # front:
+  #   build:
+  #     context: ./front
+  #     dockerfile: Dockerfile
+  #   container_name: sqlformys-front
+  #   restart: unless-stopped
+  #   env_file:
+  #     - .env
+  #   environment:
+  #     - API_BASE_URL=${API_BASE_URL:-http://localhost:8080/api}
+  #   ports:
+  #     - "3000:80"
+  #   # depends_on:
+  #   #   - api
 
 volumes:
   sqldata:
