@@ -1,47 +1,56 @@
-# SQLFormys 🚀
+# SQLFormys
 
-Welcome to **SQLFormys**! 
+SQLFormys is a tool that turns SQL queries into dynamic data entry forms (like INSERT/UPDATE). The goal is to make it easy to input data into your database tables through a simple web interface, without having to build custom CRUD pages from scratch.
 
-Have you ever wanted to instantly turn your SQL `SELECT` queries into dynamic, ready-to-use data entry forms (`INSERT`/`UPDATE`)? That's exactly what we do here! SQLFormys is built to empower users—even those without coding experience—to generate functional web forms directly from their database structures.
+## Key Features
 
-## ✨ What does it do?
+- **Dynamic Form Generation:** Maps SQL data types (like INT, VARCHAR, DATE) to the appropriate HTML input types automatically.
+- **Data Export:** Download query results easily in CSV or Excel formats.
+- **Interactive Grid:** Filter and search through query results dynamically right from the UI.
+- **Favorites Menu:** Save your most-used modules or tables to a quick-access favorites section.
+- **Smart Parsing:** Automatically reads metadata like table structures, description tags, primary/foreign keys, and execution modes from your SQL comments.
+- **Database Compatibility:** Supports standard relational databases such as PostgreSQL, MySQL, SQLite, and SQL Server.
+- **Secure by Default:** Utilizes parameterized queries to protect your database from SQL injection.
 
-- **Connects anywhere:** Hook up to your favorite relational databases (PostgreSQL, MySQL, SQLite, SQL Server).
-- **Reads your tables:** Automatically fetches table structures, smartly picking up on primary and foreign keys.
-- **Builds forms instantly:** Maps SQL data types (like `INT`, `VARCHAR`, `DATE`) straight to HTML inputs (`number`, `text`, `date`).
-- **Keeps data safe:** Automatically handles constraints (like `NOT NULL` or `UNIQUE`) and uses parameterized queries to prevent SQL injection.
+## Tech Stack
 
-## 🛠️ Tech Stack
+- **Backend:** Go (using the standard library HTTP router)
+- **Frontend:** Vanilla HTML, CSS, and JavaScript (served via Nginx)
 
-We love keeping things modern, fast, and robust:
-- **Frontend:** React, Next.js 16, TypeScript
-- **Backend:** Go 1.24+, htmx
+## Getting Started
 
-## 🚀 Getting Started
+You can run the complete project using Docker or by starting the services manually.
 
-Ready to spin it up locally? Here's how:
+### 1. Using Docker Compose
+
+If you have Docker installed, simply run the following command in the root directory:
 
 ```bash
-# Clone the repository
-git clone https://github.com/regifraga/SQLFormys.git
-
-# Hop into the project folder
-cd SQLFormys
-
-# Set up the backend
-cd backend
-go mod tidy
-
-# Set up the frontend
-cd ../frontend
-npm install
-
-# Start the dev server!
-npm run dev
+docker compose up --build
 ```
 
-## 💡 Why SQLFormys?
+This will spin up the PostgreSQL database, the Go API, and the static frontend automatically.
 
-SQLFormys is all about exploring the synergy between great open-source tools to build a scalable solution that removes the friction between raw data and end-users. No need to build custom CRUD screens for every single table anymore!
+### 2. Manual Setup
 
-Happy coding, and let's make some forms! 🎉
+If you prefer to run the services individually on your local machine:
+
+**Backend:**
+Go to the `back` folder, copy `.env.example` to a new `.env` file, configure your settings, and start the server:
+
+```bash
+cd back
+go run cmd/api/main.go
+```
+
+**Frontend:**
+The frontend consists of static files. To run it locally:
+1. In the `front` folder, copy `config.js.template` to a new file named `config.js`.
+2. Configure the API URL (by default, `http://localhost:8080/api`).
+3. Open `index.html` in your browser, or use a local static server (like the VS Code Live Server extension).
+
+## Why SQLFormys?
+
+Building repetitive CRUD interfaces for database tables takes a lot of time. SQLFormys connects raw SQL queries directly to functional web forms to bridge the gap between databases and users, making data input fast and straightforward.
+
+
