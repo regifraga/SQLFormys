@@ -592,6 +592,71 @@ body.is-resizing .main-content {
     color: var(--text-secondary);
 }
 
+.radio-group {
+    display: flex;
+    gap: 20px;
+    align-items: center;
+    margin-top: 8px;
+    padding: 2px 0;
+}
+
+.radio-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.925rem;
+    color: var(--text-primary);
+    cursor: pointer;
+    user-select: none;
+    font-weight: 500;
+}
+
+.form-radio {
+    appearance: none;
+    -webkit-appearance: none;
+    width: 18px;
+    height: 18px;
+    border: 1.5px solid var(--border-color);
+    border-radius: 50%;
+    background-color: var(--bg-surface);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    transition: border-color var(--transition-speed) ease, background-color var(--transition-speed) ease, box-shadow var(--transition-speed) ease;
+}
+
+.form-radio:hover {
+    border-color: var(--primary-color);
+}
+
+.form-radio:checked {
+    border-color: var(--primary-color);
+}
+
+.form-radio:checked::after {
+    content: "";
+    width: 8px;
+    height: 8px;
+    background-color: var(--primary-color);
+    border-radius: 50%;
+    position: absolute;
+}
+
+.form-radio:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
+}
+
+.form-radio:required {
+    border-color: rgba(239, 68, 68, 0.5);
+}
+
+.form-radio:required:hover {
+    border-color: var(--error-color);
+}
+
 .card-footer {
     padding: 16px 24px;
     background-color: var(--bg-main);
@@ -965,4 +1030,21 @@ body.is-resizing .main-content {
         margin: 8px 0;
         order: 3;
     }
+}
+
+/* Tooltip do campo (Field Information) */
+.field-info-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    margin-left: 6px;
+    color: var(--text-secondary);
+    cursor: help;
+    vertical-align: middle;
+    transition: color var(--transition-speed) ease, transform var(--transition-speed) ease;
+}
+
+.field-info-icon:hover {
+    color: var(--primary-color);
+    transform: scale(1.15);
 }

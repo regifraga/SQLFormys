@@ -144,6 +144,52 @@ func TestParseMetadata(t *testing.T) {
 			wantTimeout:     60,
 			wantFields:      1,
 		},
+		{
+			name: "With default value (5th colon)",
+			sqlContent: "--SERVER=localhost\n" +
+				"--<PROPERTIES>\n" +
+				"--SELECT @?IC_ATIVO:CHAR:1:=:Somente ativo?:N\n" +
+				"--SELECT @?NM_ARQUIVO:VARCHAR:100:=:Nome do Arquivo\n" +
+				"--</PROPERTIES>",
+			wantServer:      "localhost",
+			wantFields:      2,
+			checkField: func(t *testing.T, p *SQLParser) {
+				assert.Equal(t, "IC_ATIVO", p.Fields[0].Field)
+				assert.Equal(t, "CHAR", p.Fields[0].Type)
+				assert.Equal(t, 1, p.Fields[0].Size)
+				assert.Equal(t, "=", p.Fields[0].Operator)
+				assert.Equal(t, "Somente ativo?", p.Fields[0].Label)
+				assert.False(t, p.Fields[0].Required)
+				assert.Equal(t, "N", p.Fields[0].DefaultValue)
+
+				assert.Equal(t, "NM_ARQUIVO", p.Fields[1].Field)
+				assert.Equal(t, "", p.Fields[1].DefaultValue)
+			},
+		},
+		{
+			name: "With default value and information (6th colon)",
+			sqlContent: "--SERVER=localhost\n" +
+				"--<PROPERTIES>\n" +
+				"--SELECT @?IC_ATIVO:CHAR:1:=:Somente ativo?:N:Informe se deseja ou não que bla bla bla!\n" +
+				"--SELECT @?NM_ARQUIVO:VARCHAR:100:=:Nome do Arquivo\n" +
+				"--</PROPERTIES>",
+			wantServer:      "localhost",
+			wantFields:      2,
+			checkField: func(t *testing.T, p *SQLParser) {
+				assert.Equal(t, "IC_ATIVO", p.Fields[0].Field)
+				assert.Equal(t, "CHAR", p.Fields[0].Type)
+				assert.Equal(t, 1, p.Fields[0].Size)
+				assert.Equal(t, "=", p.Fields[0].Operator)
+				assert.Equal(t, "Somente ativo?", p.Fields[0].Label)
+				assert.False(t, p.Fields[0].Required)
+				assert.Equal(t, "N", p.Fields[0].DefaultValue)
+				assert.Equal(t, "Informe se deseja ou não que bla bla bla!", p.Fields[0].Information)
+
+				assert.Equal(t, "NM_ARQUIVO", p.Fields[1].Field)
+				assert.Equal(t, "", p.Fields[1].DefaultValue)
+				assert.Equal(t, "", p.Fields[1].Information)
+			},
+		},
 	}
 
 	for _, tt := range tests {

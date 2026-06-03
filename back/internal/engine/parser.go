@@ -39,11 +39,14 @@ var (
 )
 
 func splitMetadataLine(line string) []string {
-	parts := make([]string, 0, 5)
+	parts := make([]string, 0, 7)
 	remaining := line
-	for i := 0; i < 4; i++ {
+	for i := 0; i < 6; i++ {
 		idx := strings.Index(remaining, ":")
 		if idx == -1 {
+			if i >= 4 {
+				break
+			}
 			return nil
 		}
 		parts = append(parts, remaining[:idx])
@@ -115,6 +118,16 @@ func ParseMetadata(sqlContent string) (*SQLParser, error) {
 		operatorPart := strings.TrimSpace(parts[3])
 		labelPart := strings.TrimSpace(parts[4])
 
+		var defaultValue string
+		if len(parts) >= 6 {
+			defaultValue = strings.TrimSpace(parts[5])
+		}
+
+		var information string
+		if len(parts) >= 7 {
+			information = strings.TrimSpace(parts[6])
+		}
+
 		fieldNameMatch := fieldNameRegex.FindStringSubmatch(fieldPart)
 		if len(fieldNameMatch) < 2 {
 			continue
@@ -130,7 +143,8 @@ func ParseMetadata(sqlContent string) (*SQLParser, error) {
 			Operator:     operatorPart,
 			Label:        labelPart,
 			Required:     strings.Contains(fieldPart, "#"),
-			DefaultValue: "",
+			DefaultValue: defaultValue,
+			Information:  information,
 		}
 		parser.Fields = append(parser.Fields, field)
 	}

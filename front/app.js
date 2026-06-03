@@ -517,12 +517,82 @@ function renderForm(queryPath, moduleTitle, fields, description = '', executeMod
 
         const label = document.createElement('label');
         label.className = 'form-label';
-        label.htmlFor = `field_${field.field}`;
-        label.innerText = field.label;
+        
+        const labelText = document.createElement('span');
+        labelText.innerText = field.label;
+        label.appendChild(labelText);
+        
         if (field.required) {
-            label.classList.add('required');
+            const asterisk = document.createElement('span');
+            asterisk.innerText = ' *';
+            asterisk.style.color = 'var(--error-color)';
+            label.appendChild(asterisk);
         }
 
+        if (field.information) {
+            const infoSpan = document.createElement('span');
+            infoSpan.className = 'field-info-icon';
+            infoSpan.title = field.information;
+            infoSpan.innerHTML = `
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <line x1="12" y1="16" x2="12" y2="12"></line>
+                    <line x1="12" y1="8" x2="12.01" y2="8"></line>
+                </svg>
+            `;
+            label.appendChild(infoSpan);
+        }
+
+        // Se o tipo for CHAR e tamanho 1, renderizar 2 radio buttons: Sim (S) e Não (N)
+        if (field.type.toUpperCase() === 'CHAR' && field.size === 1) {
+            label.htmlFor = `field_${field.field}_S`;
+
+            const radioGroup = document.createElement('div');
+            radioGroup.className = 'radio-group';
+            
+            const labelSim = document.createElement('label');
+            labelSim.className = 'radio-label';
+            const radioSim = document.createElement('input');
+            radioSim.type = 'radio';
+            radioSim.id = `field_${field.field}_S`;
+            radioSim.name = field.field;
+            radioSim.value = 'S';
+            radioSim.className = 'form-radio';
+            radioSim.required = field.required;
+            
+            labelSim.appendChild(radioSim);
+            labelSim.appendChild(document.createTextNode('Sim'));
+            
+            const labelNao = document.createElement('label');
+            labelNao.className = 'radio-label';
+            const radioNao = document.createElement('input');
+            radioNao.type = 'radio';
+            radioNao.id = `field_${field.field}_N`;
+            radioNao.name = field.field;
+            radioNao.value = 'N';
+            radioNao.className = 'form-radio';
+            radioNao.required = field.required;
+            
+            labelNao.appendChild(radioNao);
+            labelNao.appendChild(document.createTextNode('Não'));
+            
+            radioGroup.appendChild(labelSim);
+            radioGroup.appendChild(labelNao);
+            
+            // Definir seleção padrão
+            if (field.defaultValue === 'S') {
+                radioSim.checked = true;
+            } else if (field.defaultValue === 'N') {
+                radioNao.checked = true;
+            }
+            
+            group.appendChild(label);
+            group.appendChild(radioGroup);
+            dynamicForm.appendChild(group);
+            return;
+        }
+
+        label.htmlFor = `field_${field.field}`;
         let input;
 
         // Mapeamento básico de tipos SQL para HTML
@@ -595,9 +665,18 @@ function handleClear() {
     if (!currentFields || currentFields.length === 0) return;
     
     currentFields.forEach(field => {
-        const input = document.getElementById(`field_${field.field}`);
-        if (input) {
-            input.value = field.defaultValue || '';
+        if (field.type.toUpperCase() === 'CHAR' && field.size === 1) {
+            const radioSim = document.getElementById(`field_${field.field}_S`);
+            const radioNao = document.getElementById(`field_${field.field}_N`);
+            if (radioSim && radioNao) {
+                radioSim.checked = field.defaultValue === 'S';
+                radioNao.checked = field.defaultValue === 'N';
+            }
+        } else {
+            const input = document.getElementById(`field_${field.field}`);
+            if (input) {
+                input.value = field.defaultValue || '';
+            }
         }
     });
 }
@@ -609,12 +688,18 @@ function handleExecute() {
     }
 
     const payload = {};
-    const inputs = dynamicForm.querySelectorAll('.form-control');
+    const inputs = dynamicForm.querySelectorAll('.form-control, .form-radio');
     
     inputs.forEach(input => {
-        // Só enviar se tiver valor ou se for requirido
-        if (input.value !== '' || input.required) {
-            payload[input.name] = input.value;
+        if (input.type === 'radio') {
+            if (input.checked) {
+                payload[input.name] = input.value;
+            }
+        } else {
+            // Só enviar se tiver valor ou se for requirido
+            if (input.value !== '' || input.required) {
+                payload[input.name] = input.value;
+            }
         }
     });
 

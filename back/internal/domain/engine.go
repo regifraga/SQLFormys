@@ -10,6 +10,7 @@ type Field struct {
 	Size         int    `json:"size"`
 	Required     bool   `json:"required"`
 	DefaultValue string `json:"defaultValue"`
+	Information  string `json:"information"`
 	Operator     string `json:"-"` // Internal use for building query, typically '='
 }
 
