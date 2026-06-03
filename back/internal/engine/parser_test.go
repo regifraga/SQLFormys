@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"sqlformys/internal/domain"
 )
 
 func TestParseMetadata(t *testing.T) {
@@ -190,6 +191,63 @@ func TestParseMetadata(t *testing.T) {
 				assert.Equal(t, "", p.Fields[1].Information)
 			},
 		},
+		{
+			name: "With SINGLE field type",
+			sqlContent: "--SERVER=localhost\n" +
+				"--<PROPERTIES>\n" +
+				"--SELECT @?#IC_TIPOS:SINGLE(S=Simples,V=Vários,A=Alguns,Nenhum):VARCHAR:10:=:Tipo:N:É apenas um exemplo\n" +
+				"--</PROPERTIES>",
+			wantServer:      "localhost",
+			wantFields:      1,
+			checkField: func(t *testing.T, p *SQLParser) {
+				assert.Equal(t, "IC_TIPOS", p.Fields[0].Field)
+				assert.Equal(t, "SINGLE(S=Simples,V=Vários,A=Alguns,Nenhum)", p.Fields[0].Type)
+				assert.Equal(t, 10, p.Fields[0].Size)
+				assert.Equal(t, "=", p.Fields[0].Operator)
+				assert.Equal(t, "Tipo", p.Fields[0].Label)
+				assert.True(t, p.Fields[0].Required)
+				assert.Equal(t, "N", p.Fields[0].DefaultValue)
+				assert.Equal(t, "É apenas um exemplo", p.Fields[0].Information)
+			},
+		},
+		{
+			name: "With MULTI field type",
+			sqlContent: "--SERVER=localhost\n" +
+				"--<PROPERTIES>\n" +
+				"--SELECT @?#IC_VALORES:MULTI(S=Simples,V=Vários,A=Alguns,Nenhum):VARCHAR:40:=:Valores:S,A:Apenas mais um exemplo\n" +
+				"--</PROPERTIES>",
+			wantServer:      "localhost",
+			wantFields:      1,
+			checkField: func(t *testing.T, p *SQLParser) {
+				assert.Equal(t, "IC_VALORES", p.Fields[0].Field)
+				assert.Equal(t, "MULTI(S=Simples,V=Vários,A=Alguns,Nenhum)", p.Fields[0].Type)
+				assert.Equal(t, 40, p.Fields[0].Size)
+				assert.Equal(t, "=", p.Fields[0].Operator)
+				assert.Equal(t, "Valores", p.Fields[0].Label)
+				assert.True(t, p.Fields[0].Required)
+				assert.Equal(t, "S,A", p.Fields[0].DefaultValue)
+				assert.Equal(t, "Apenas mais um exemplo", p.Fields[0].Information)
+			},
+		},
+		{
+			name: "With MULTIPLE field type",
+			sqlContent: "--SERVER=localhost\n" +
+				"--<PROPERTIES>\n" +
+				"--SELECT @?#IC_VALORES:MULTIPLE(S=Simples,V=Vários):VARCHAR:40:=:Valores:S,V:Apenas mais um exemplo\n" +
+				"--</PROPERTIES>",
+			wantServer:      "localhost",
+			wantFields:      1,
+			checkField: func(t *testing.T, p *SQLParser) {
+				assert.Equal(t, "IC_VALORES", p.Fields[0].Field)
+				assert.Equal(t, "MULTIPLE(S=Simples,V=Vários)", p.Fields[0].Type)
+				assert.Equal(t, 40, p.Fields[0].Size)
+				assert.Equal(t, "=", p.Fields[0].Operator)
+				assert.Equal(t, "Valores", p.Fields[0].Label)
+				assert.True(t, p.Fields[0].Required)
+				assert.Equal(t, "S,V", p.Fields[0].DefaultValue)
+				assert.Equal(t, "Apenas mais um exemplo", p.Fields[0].Information)
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -327,6 +385,45 @@ func TestInjectValues(t *testing.T) {
 				"-- </PROPERTIES>",
 			},
 		},
+		{
+			name: "SINGLE field type injection",
+			sqlContent: "-- <PROPERTIES>\n" +
+				"--SELECT @?#IC_TIPOS:SINGLE(S=Simples,V=Vários):VARCHAR:10:=:Tipo:N\n" +
+				"-- </PROPERTIES>\n" +
+				"SELECT * FROM tbl",
+			values: map[string]interface{}{
+				"IC_TIPOS": "S",
+			},
+			contains: []string{
+				"SELECT @IC_TIPOS='S'",
+			},
+		},
+		{
+			name: "SINGLE field type numeric injection",
+			sqlContent: "-- <PROPERTIES>\n" +
+				"--SELECT @?#IC_TIPOS:SINGLE(1=Simples,2=Vários):INT:4:=:Tipo:1\n" +
+				"-- </PROPERTIES>\n" +
+				"SELECT * FROM tbl",
+			values: map[string]interface{}{
+				"IC_TIPOS": 2,
+			},
+			contains: []string{
+				"SELECT @IC_TIPOS=2",
+			},
+		},
+		{
+			name: "MULTI field type injection",
+			sqlContent: "-- <PROPERTIES>\n" +
+				"--SELECT @?#IC_VALORES:MULTI(S=Simples,V=Vários):VARCHAR:40:=:Valores:S,V\n" +
+				"-- </PROPERTIES>\n" +
+				"SELECT * FROM tbl",
+			values: map[string]interface{}{
+				"IC_VALORES": "S,V",
+			},
+			contains: []string{
+				"SELECT @IC_VALORES='S,V'",
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -389,3 +486,87 @@ func TestInjectValuesPostgres(t *testing.T) {
 		})
 	}
 }
+
+func TestParseRealFilesByNameSQL(t *testing.T) {
+	content := `--SERVER=localhost
+
+--<PROPERTIES>
+-- SELECT @?NM_ARQUIVO:VARCHAR:100:=:Nome do Arquivo
+-- SELECT @?#IC_ATIVO:CHAR:1:=:Somente ativo?:N:Informe se deseja ou não que bla bla bla!
+-- SELECT @?IC_TIPO:SINGLE(S=Simples,V=Vários,A=Alguns,Nenhum):VARCHAR:10:=:Tipo::É apenas um exemplo tipo eu, ridículo
+-- SELECT @?#IC_VALORES:MULTI(S=Simples,V=Vários,A=Alguns,Nenhum):VARCHAR:40:=:Valores:S,A:Apenas mais um exemplo
+--</PROPERTIES>`
+
+	parser, err := ParseMetadata(content)
+	assert.NoError(t, err)
+	assert.Equal(t, "localhost", parser.Server)
+	assert.Len(t, parser.Fields, 4)
+
+	// Test field 0
+	assert.Equal(t, "NM_ARQUIVO", parser.Fields[0].Field)
+	assert.Equal(t, "VARCHAR", parser.Fields[0].Type)
+	assert.Equal(t, 100, parser.Fields[0].Size)
+	assert.Equal(t, "=", parser.Fields[0].Operator)
+	assert.Equal(t, "Nome do Arquivo", parser.Fields[0].Label)
+	assert.False(t, parser.Fields[0].Required)
+	assert.Equal(t, "", parser.Fields[0].DefaultValue)
+
+	// Test field 1
+	assert.Equal(t, "IC_ATIVO", parser.Fields[1].Field)
+	assert.Equal(t, "CHAR", parser.Fields[1].Type)
+	assert.Equal(t, 1, parser.Fields[1].Size)
+	assert.Equal(t, "=", parser.Fields[1].Operator)
+	assert.Equal(t, "Somente ativo?", parser.Fields[1].Label)
+	assert.True(t, parser.Fields[1].Required)
+	assert.Equal(t, "N", parser.Fields[1].DefaultValue)
+	assert.Equal(t, "Informe se deseja ou não que bla bla bla!", parser.Fields[1].Information)
+
+	// Test field 2
+	assert.Equal(t, "IC_TIPO", parser.Fields[2].Field)
+	assert.Equal(t, "SINGLE(S=Simples,V=Vários,A=Alguns,Nenhum)", parser.Fields[2].Type)
+	assert.Equal(t, 10, parser.Fields[2].Size)
+	assert.Equal(t, "=", parser.Fields[2].Operator)
+	assert.Equal(t, "Tipo", parser.Fields[2].Label)
+	assert.False(t, parser.Fields[2].Required)
+	assert.Equal(t, "", parser.Fields[2].DefaultValue)
+	assert.Equal(t, "É apenas um exemplo tipo eu, ridículo", parser.Fields[2].Information)
+
+	// Test field 3
+	assert.Equal(t, "IC_VALORES", parser.Fields[3].Field)
+	assert.Equal(t, "MULTI(S=Simples,V=Vários,A=Alguns,Nenhum)", parser.Fields[3].Type)
+	assert.Equal(t, 40, parser.Fields[3].Size)
+	assert.Equal(t, "=", parser.Fields[3].Operator)
+	assert.Equal(t, "Valores", parser.Fields[3].Label)
+	assert.True(t, parser.Fields[3].Required)
+	assert.Equal(t, "S,A", parser.Fields[3].DefaultValue)
+	assert.Equal(t, "Apenas mais um exemplo", parser.Fields[3].Information)
+}
+
+func TestInjectValuesConditionalComments(t *testing.T) {
+	sqlContent := `SELECT 
+    CD_ARQUIVO as "Id", 
+    NM_ARQUIVO as "Description", 
+    /*[IC_TAMANHO=S]*/NR_TAMANHO_BYTES as "Size",/*[/IC_TAMANHO]*/
+    DH_REGISTRO as "Date"
+FROM dbo.COR_ARQUIVO`
+
+	fields := []domain.Field{
+		{
+			Field:        "IC_TAMANHO",
+			DefaultValue: "S",
+		},
+	}
+
+	// Test 1: S value keeps the column
+	resS := InjectValues(sqlContent, map[string]interface{}{"IC_TAMANHO": "S"}, fields, "postgres")
+	assert.Contains(t, resS, `NR_TAMANHO_BYTES as "Size"`)
+
+	// Test 2: N value removes the column
+	resN := InjectValues(sqlContent, map[string]interface{}{"IC_TAMANHO": "N"}, fields, "postgres")
+	assert.NotContains(t, resN, `NR_TAMANHO_BYTES as "Size"`)
+
+	// Test 3: Nil/missing value falls back to default value "S"
+	resDefault := InjectValues(sqlContent, map[string]interface{}{}, fields, "postgres")
+	assert.Contains(t, resDefault, `NR_TAMANHO_BYTES as "Size"`)
+}
+

@@ -38,10 +38,10 @@ var (
 	fieldNameRegex = regexp.MustCompile(`[@?#]+([A-Za-z0-9_.]+)`)
 )
 
-func splitMetadataLine(line string) []string {
-	parts := make([]string, 0, 7)
+func splitMetadataLine(line string, maxSplits int) []string {
+	parts := make([]string, 0, maxSplits+1)
 	remaining := line
-	for i := 0; i < 6; i++ {
+	for i := 0; i < maxSplits; i++ {
 		idx := strings.Index(remaining, ":")
 		if idx == -1 {
 			if i >= 4 {
@@ -107,25 +107,54 @@ func ParseMetadata(sqlContent string) (*SQLParser, error) {
 			continue
 		}
 
-		parts := splitMetadataLine(line)
-		if len(parts) < 5 {
-			continue
-		}
-
-		fieldPart := parts[0]
-		typePart := strings.TrimSpace(parts[1])
-		sizePart := strings.TrimSpace(parts[2])
-		operatorPart := strings.TrimSpace(parts[3])
-		labelPart := strings.TrimSpace(parts[4])
-
+		var fieldPart string
+		var typePart string
+		var sizePart string
+		var operatorPart string
+		var labelPart string
 		var defaultValue string
-		if len(parts) >= 6 {
-			defaultValue = strings.TrimSpace(parts[5])
-		}
-
 		var information string
-		if len(parts) >= 7 {
-			information = strings.TrimSpace(parts[6])
+		var dbTypeVal string
+
+		typeUpper := strings.ToUpper(line)
+		isSingle := strings.Contains(typeUpper, ":SINGLE(")
+		isMulti := strings.Contains(typeUpper, ":MULTI(") || strings.Contains(typeUpper, ":MULTIPLE(")
+		isExtended := isSingle || isMulti
+
+		if isExtended {
+			parts := splitMetadataLine(line, 7)
+			if len(parts) < 6 {
+				continue
+			}
+			fieldPart = parts[0]
+			typePart = parts[1] // Keep casing for options like SINGLE(S=Simples) or MULTI(...)
+			dbTypeVal = strings.ToUpper(strings.TrimSpace(parts[2]))
+			sizePart = strings.TrimSpace(parts[3])
+			operatorPart = strings.TrimSpace(parts[4])
+			labelPart = strings.TrimSpace(parts[5])
+			if len(parts) >= 7 {
+				defaultValue = strings.TrimSpace(parts[6])
+			}
+			if len(parts) >= 8 {
+				information = strings.TrimSpace(parts[7])
+			}
+		} else {
+			parts := splitMetadataLine(line, 6)
+			if len(parts) < 5 {
+				continue
+			}
+			fieldPart = parts[0]
+			typePart = strings.ToUpper(strings.TrimSpace(parts[1]))
+			dbTypeVal = typePart
+			sizePart = strings.TrimSpace(parts[2])
+			operatorPart = strings.TrimSpace(parts[3])
+			labelPart = strings.TrimSpace(parts[4])
+			if len(parts) >= 6 {
+				defaultValue = strings.TrimSpace(parts[5])
+			}
+			if len(parts) >= 7 {
+				information = strings.TrimSpace(parts[6])
+			}
 		}
 
 		fieldNameMatch := fieldNameRegex.FindStringSubmatch(fieldPart)
@@ -138,13 +167,14 @@ func ParseMetadata(sqlContent string) (*SQLParser, error) {
 
 		field := domain.Field{
 			Field:        fieldName,
-			Type:         strings.ToUpper(typePart),
+			Type:         typePart,
 			Size:         size,
 			Operator:     operatorPart,
 			Label:        labelPart,
 			Required:     strings.Contains(fieldPart, "#"),
 			DefaultValue: defaultValue,
 			Information:  information,
+			DbType:       dbTypeVal,
 		}
 		parser.Fields = append(parser.Fields, field)
 	}
@@ -154,6 +184,55 @@ func ParseMetadata(sqlContent string) (*SQLParser, error) {
 
 // InjectValues takes the original SQL and user values, replaces the PROPERTIES block with SELECT injections (or SET statements for Postgres)
 func InjectValues(sqlContent string, values map[string]interface{}, fields []domain.Field, driver string) string {
+	// Process conditional comments: /*[VAR=VAL]*/content/*[/VAR]*/
+	startRegex := regexp.MustCompile(`/\*\[([A-Za-z0-9_.]+)=([^\]]+)\]\*/`)
+	for {
+		loc := startRegex.FindStringSubmatchIndex(sqlContent)
+		if loc == nil {
+			break
+		}
+
+		fullStart := loc[0]
+		fullEnd := loc[1]
+		varName := sqlContent[loc[2]:loc[3]]
+		targetVal := sqlContent[loc[4]:loc[5]]
+
+		// Find the closing tag: /*[/VAR]*/
+		closingTag := fmt.Sprintf("/*[/%s]*/", varName)
+		closingIndex := strings.Index(sqlContent[fullEnd:], closingTag)
+		if closingIndex == -1 {
+			// If no closing tag is found, remove the opening tag to avoid infinite loop
+			sqlContent = sqlContent[:fullStart] + sqlContent[fullEnd:]
+			continue
+		}
+
+		actualClosingStart := fullEnd + closingIndex
+		actualClosingEnd := actualClosingStart + len(closingTag)
+
+		content := sqlContent[fullEnd:actualClosingStart]
+
+		val, exists := values[varName]
+		valStr := ""
+		if exists && val != nil {
+			valStr = fmt.Sprintf("%v", val)
+		} else {
+			// Fallback to default value from fields metadata
+			for _, f := range fields {
+				if f.Field == varName {
+					valStr = f.DefaultValue
+					break
+				}
+			}
+		}
+
+		replacement := ""
+		if valStr == targetVal {
+			replacement = content
+		}
+
+		sqlContent = sqlContent[:fullStart] + replacement + sqlContent[actualClosingEnd:]
+	}
+
 	isPostgres := driver == "postgres" || driver == "pgx"
 
 	if isPostgres {
@@ -180,7 +259,12 @@ func InjectValues(sqlContent string, values map[string]interface{}, fields []dom
 			continue
 		}
 
-		parts := splitMetadataLine(line)
+		maxSplits := 6
+		typeUpper := strings.ToUpper(line)
+		if strings.Contains(typeUpper, ":SINGLE(") || strings.Contains(typeUpper, ":MULTI(") || strings.Contains(typeUpper, ":MULTIPLE(") {
+			maxSplits = 7
+		}
+		parts := splitMetadataLine(line, maxSplits)
 		if len(parts) < 5 {
 			continue
 		}
@@ -247,7 +331,8 @@ func InjectValues(sqlContent string, values map[string]interface{}, fields []dom
 
 		// Format the value
 		var valFormatted string
-		isNumeric := field.Type == "INT" || field.Type == "DECIMAL" || field.Type == "NUMERIC" || field.Type == "FLOAT"
+		isNumeric := field.Type == "INT" || field.Type == "DECIMAL" || field.Type == "NUMERIC" || field.Type == "FLOAT" ||
+			field.DbType == "INT" || field.DbType == "DECIMAL" || field.DbType == "NUMERIC" || field.DbType == "FLOAT"
 
 		if isNumeric {
 			if valStr == "" {

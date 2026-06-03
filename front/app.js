@@ -543,6 +543,90 @@ function renderForm(queryPath, moduleTitle, fields, description = '', executeMod
             label.appendChild(infoSpan);
         }
 
+        // Se o tipo for SINGLE ou MULTI/MULTIPLE, renderizar um select (Dropdown List)
+        const typeUpper = field.type.toUpperCase();
+        const isSingle = typeUpper.startsWith('SINGLE');
+        const isMulti = typeUpper.startsWith('MULTI') || typeUpper.startsWith('MULTIPLE');
+
+        if (isSingle || isMulti) {
+            label.htmlFor = `field_${field.field}`;
+            
+            const select = document.createElement('select');
+            select.id = `field_${field.field}`;
+            select.name = field.field;
+            select.className = 'form-control';
+            select.required = field.required;
+
+            if (isMulti) {
+                select.multiple = true;
+            }
+
+            // Se não for obrigatório, adicionar opção em branco (apenas para SINGLE)
+            if (isSingle && !field.required) {
+                const emptyOption = document.createElement('option');
+                emptyOption.value = '';
+                emptyOption.text = '';
+                select.appendChild(emptyOption);
+            }
+
+            // Exemplo de tipo: SINGLE(S=Simples,V=Vários) ou MULTI(S=Simples,V=Vários)
+            // Extrair o conteúdo entre parênteses
+            const match = field.type.match(/\(([^)]+)\)/);
+            if (match) {
+                const optionsStr = match[1];
+                // Dividir pelas opções usando regex para suportar , ou ; ou |
+                const optionsList = optionsStr.split(/[,;|]/);
+
+                if (isMulti) {
+                    select.size = Math.min(5, optionsList.length);
+                }
+
+                // Fatiar valores padrão se for multi-select
+                const defaultValues = field.defaultValue ? field.defaultValue.split(/[,;|]/).map(d => d.trim()) : [];
+
+                optionsList.forEach(opt => {
+                    const parts = opt.split('=');
+                    let val = '';
+                    let text = '';
+                    if (parts.length >= 2) {
+                        val = parts[0].trim();
+                        text = parts.slice(1).join('=').trim();
+                    } else {
+                        text = opt.trim();
+                        val = text;
+                        // Fallback: se o valor padrão tem tamanho 1 (ex: 'N') e o texto começa com ele (ex: 'Nenhum'), assume o valor padrão
+                        if (field.defaultValue && field.defaultValue.length === 1 && text.toUpperCase().startsWith(field.defaultValue.toUpperCase())) {
+                            val = field.defaultValue;
+                        }
+                    }
+                    const option = document.createElement('option');
+                    option.value = val;
+                    option.text = text;
+
+                    if (isMulti) {
+                        if (defaultValues.includes(val)) {
+                            option.selected = true;
+                        }
+                    } else {
+                        if (field.defaultValue && val === field.defaultValue) {
+                            option.selected = true;
+                        }
+                    }
+                    select.appendChild(option);
+                });
+            }
+
+            // Se houver defaultValue e for SINGLE, definir no select como valor final
+            if (isSingle && field.defaultValue) {
+                select.value = field.defaultValue;
+            }
+
+            group.appendChild(label);
+            group.appendChild(select);
+            dynamicForm.appendChild(group);
+            return;
+        }
+
         // Se o tipo for CHAR e tamanho 1, renderizar 2 radio buttons: Sim (S) e Não (N)
         if (field.type.toUpperCase() === 'CHAR' && field.size === 1) {
             label.htmlFor = `field_${field.field}_S`;
@@ -675,7 +759,14 @@ function handleClear() {
         } else {
             const input = document.getElementById(`field_${field.field}`);
             if (input) {
-                input.value = field.defaultValue || '';
+                if (input.tagName === 'SELECT' && input.multiple) {
+                    const defaultValues = field.defaultValue ? field.defaultValue.split(/[,;|]/).map(d => d.trim()) : [];
+                    Array.from(input.options).forEach(option => {
+                        option.selected = defaultValues.includes(option.value);
+                    });
+                } else {
+                    input.value = field.defaultValue || '';
+                }
             }
         }
     });
@@ -694,6 +785,11 @@ function handleExecute() {
         if (input.type === 'radio') {
             if (input.checked) {
                 payload[input.name] = input.value;
+            }
+        } else if (input.tagName === 'SELECT' && input.multiple) {
+            const selectedValues = Array.from(input.selectedOptions).map(opt => opt.value);
+            if (selectedValues.length > 0 || input.required) {
+                payload[input.name] = selectedValues.join(',');
             }
         } else {
             // Só enviar se tiver valor ou se for requirido
