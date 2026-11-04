@@ -36,6 +36,9 @@ let currentQueryPath = null;
 let currentFields = [];
 let allProjects = [];
 let currentQueryResult = null;
+let gridSortState = { column: null, direction: 'asc' };
+let gridColumnTypes = {};
+let currentQueryLookups = {};
 
 /* ==========================================================================
    Inicialização
@@ -244,6 +247,7 @@ async function loadFormFields(queryPath, moduleTitle) {
         
         currentQueryPath = queryPath;
         currentFields = fields;
+        currentQueryLookups = data.lookups || {};
 
         renderForm(queryPath, moduleTitle, fields, description, executeMode, server, timeout);
         
@@ -447,6 +451,17 @@ function closeCustomSelect(wrapper) {
     wrapper.classList.remove('open');
     const trigger = wrapper.querySelector('.custom-select-trigger');
     const menu = wrapper.querySelector('.custom-select-menu');
+    const searchInput = wrapper.querySelector('.custom-select-search-input');
+    if (searchInput) {
+        searchInput.value = '';
+    }
+    wrapper.querySelectorAll('.custom-select-list [role="option"]').forEach(li => {
+        li.classList.remove('is-filtered-out');
+    });
+    const emptyMsg = wrapper.querySelector('.custom-select-empty');
+    if (emptyMsg) {
+        emptyMsg.classList.add('hidden');
+    }
     if (trigger) trigger.setAttribute('aria-expanded', 'false');
     if (menu) {
         menu.hidden = true;
@@ -474,7 +489,7 @@ function positionCustomSelectMenu(wrapper) {
     if (!trigger || !menu) return;
 
     const rect = trigger.getBoundingClientRect();
-    const maxHeight = wrapper.classList.contains('is-multiple') ? 320 : 240;
+    const maxHeight = wrapper.classList.contains('is-multiple') ? 360 : 280;
     const spaceBelow = window.innerHeight - rect.bottom;
     const spaceAbove = rect.top;
     const openUp = spaceBelow < Math.min(maxHeight, menu.scrollHeight + 8) && spaceAbove > spaceBelow;
@@ -540,9 +555,88 @@ function optionCode(option) {
     return String(option.code);
 }
 
+function isFormFieldFilled(fieldName) {
+    const radios = dynamicForm.querySelectorAll(`input[type="radio"][name="${fieldName}"]`);
+    if (radios.length > 0) {
+        return Array.from(radios).some(radio => radio.checked);
+    }
+
+    const control = document.getElementById(`field_${fieldName}`) ||
+        dynamicForm.querySelector(`select[name="${fieldName}"]`) ||
+        dynamicForm.querySelector(`input[name="${fieldName}"]`) ||
+        dynamicForm.querySelector(`textarea[name="${fieldName}"]`);
+
+    if (!control) {
+        const values = collectFormValues(true);
+        const val = values[fieldName];
+        return val !== undefined && String(val).trim() !== '';
+    }
+
+    if (control.tagName === 'SELECT' && control.multiple) {
+        return Array.from(control.selectedOptions).some(option => option.value !== '');
+    }
+
+    return String(control.value || '').trim() !== '';
+}
+
+function focusFormField(fieldName) {
+    const trigger = document.getElementById(`field_${fieldName}_trigger`);
+    if (trigger) {
+        trigger.focus();
+        return;
+    }
+
+    const control = document.getElementById(`field_${fieldName}`) ||
+        dynamicForm.querySelector(`[name="${fieldName}"]`);
+    if (!control) return;
+
+    if (control.classList.contains('custom-select-native')) {
+        const wrapper = control.closest('.custom-select');
+        const customTrigger = wrapper ? wrapper.querySelector('.custom-select-trigger') : null;
+        if (customTrigger) {
+            customTrigger.focus();
+            return;
+        }
+    }
+
+    control.focus();
+    if (typeof control.reportValidity === 'function') {
+        control.reportValidity();
+    }
+}
+
+function validateLookupPrerequisites(select) {
+    const lookupName = select.dataset.lookupName;
+    if (!lookupName) return true;
+
+    const lookupMeta = currentQueryLookups[lookupName];
+    if (!lookupMeta || !Array.isArray(lookupMeta.dependsOn)) return true;
+
+    const missing = [];
+    lookupMeta.dependsOn.forEach(depField => {
+        if (depField === select.name) return;
+        const meta = currentFields.find(field => field.field === depField);
+        if (!meta || !meta.required) return;
+        if (!isFormFieldFilled(depField)) {
+            missing.push({ field: depField, label: meta.label || depField });
+        }
+    });
+
+    if (missing.length === 0) return true;
+
+    showToast(
+        'Lookup',
+        `Preencha os campos obrigatórios antes: ${missing.map(item => item.label).join(', ')}`,
+        'error'
+    );
+    focusFormField(missing[0].field);
+    return false;
+}
+
 async function loadLookupOptions(select) {
     const lookupName = select.dataset.lookupName;
     if (!lookupName || !currentQueryPath || select.dataset.lookupLoading === 'true') return;
+    if (!validateLookupPrerequisites(select)) return;
 
     const previousValues = select.multiple
         ? Array.from(select.selectedOptions).map(opt => opt.value)
@@ -550,7 +644,7 @@ async function loadLookupOptions(select) {
 
     select.dataset.lookupLoading = 'true';
     try {
-        const response = await fetch(`${API_BASE_URL}/lookups/${currentQueryPath}?name=${encodeURIComponent(lookupName)}`, {
+        const response = await fetch(`${API_BASE_URL}/lookups/${currentQueryPath}?name=${encodeURIComponent(lookupName)}&field=${encodeURIComponent(select.name)}`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
@@ -688,6 +782,32 @@ function enhanceCustomSelect(select) {
         menu.appendChild(actions);
     }
 
+    const hasSearch = Boolean(select.dataset.lookupName);
+    let searchInput = null;
+    let emptySearchMessage = null;
+
+    if (hasSearch) {
+        wrapper.classList.add('has-search');
+        const searchWrap = document.createElement('div');
+        searchWrap.className = 'custom-select-search';
+
+        searchInput = document.createElement('input');
+        searchInput.type = 'search';
+        searchInput.className = 'custom-select-search-input form-control';
+        searchInput.placeholder = 'Buscar...';
+        searchInput.autocomplete = 'off';
+        searchInput.setAttribute('aria-label', 'Buscar opções');
+        searchInput.addEventListener('click', (e) => e.stopPropagation());
+        searchInput.addEventListener('keydown', (e) => e.stopPropagation());
+
+        searchWrap.appendChild(searchInput);
+        menu.appendChild(searchWrap);
+
+        emptySearchMessage = document.createElement('div');
+        emptySearchMessage.className = 'custom-select-empty hidden';
+        emptySearchMessage.textContent = 'Nenhum resultado encontrado';
+    }
+
     const list = document.createElement('ul');
     list.className = 'custom-select-list';
     list.setAttribute('role', 'listbox');
@@ -712,12 +832,34 @@ function enhanceCustomSelect(select) {
         }
     }
 
+    function getVisibleListItems() {
+        return Array.from(list.querySelectorAll('[role="option"]')).filter(li => !li.classList.contains('is-filtered-out'));
+    }
+
+    function applySearchFilter() {
+        if (!searchInput) return;
+        const query = searchInput.value.trim().toLowerCase();
+        let visibleCount = 0;
+
+        Array.from(list.querySelectorAll('[role="option"]')).forEach(li => {
+            const haystack = li.dataset.searchText || '';
+            const match = query === '' || haystack.includes(query);
+            li.classList.toggle('is-filtered-out', !match);
+            if (match) visibleCount += 1;
+        });
+
+        if (emptySearchMessage) {
+            emptySearchMessage.classList.toggle('hidden', visibleCount > 0 || query === '');
+        }
+    }
+
     function rebuildList() {
         list.innerHTML = '';
         Array.from(select.options).forEach(option => {
             const li = document.createElement('li');
             li.setAttribute('role', 'option');
             li.dataset.value = option.value;
+            li.dataset.searchText = `${option.value} ${option.text || option.value}`.toLowerCase();
             li.tabIndex = -1;
             if (!option.value) {
                 li.classList.add('empty-option');
@@ -742,10 +884,29 @@ function enhanceCustomSelect(select) {
             });
             list.appendChild(li);
         });
+        applySearchFilter();
         syncFromSelect();
     }
 
     menu.appendChild(list);
+    if (emptySearchMessage) {
+        menu.appendChild(emptySearchMessage);
+    }
+
+    if (searchInput) {
+        searchInput.addEventListener('input', applySearchFilter);
+        searchInput.addEventListener('keydown', (e) => {
+            if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                const first = getVisibleListItems()[0];
+                if (first) first.focus();
+            } else if (e.key === 'Escape') {
+                e.preventDefault();
+                closeCustomSelect(wrapper);
+                trigger.focus();
+            }
+        });
+    }
 
     function getSelectedOptions() {
         return Array.from(select.options).filter(option => option.selected && option.value !== '');
@@ -797,6 +958,9 @@ function enhanceCustomSelect(select) {
 
     async function openMenu() {
         if (select.dataset.lookupName) {
+            if (!validateLookupPrerequisites(select)) {
+                return;
+            }
             valueSpan.textContent = 'Carregando...';
             valueSpan.classList.add('placeholder');
             await loadLookupOptions(select);
@@ -806,8 +970,14 @@ function enhanceCustomSelect(select) {
         trigger.setAttribute('aria-expanded', 'true');
         menu.hidden = false;
         positionCustomSelectMenu(wrapper);
-        const selected = list.querySelector('[aria-selected="true"]') || list.querySelector('[role="option"]');
-        if (selected) selected.focus();
+        if (searchInput) {
+            searchInput.value = '';
+            applySearchFilter();
+            searchInput.focus();
+        } else {
+            const selected = list.querySelector('[aria-selected="true"]') || list.querySelector('[role="option"]');
+            if (selected) selected.focus();
+        }
     }
 
     trigger.addEventListener('click', async (e) => {
@@ -829,7 +999,7 @@ function enhanceCustomSelect(select) {
     });
 
     menu.addEventListener('keydown', (e) => {
-        const items = Array.from(list.querySelectorAll('[role="option"]'));
+        const items = getVisibleListItems();
         const current = document.activeElement;
         const idx = items.indexOf(current);
         if (e.key === 'ArrowDown') {
@@ -1177,6 +1347,7 @@ function handleCancel() {
     
     currentQueryPath = null;
     currentFields = [];
+    currentQueryLookups = {};
     currentQueryResult = null;
     if (gridActions) {
         gridActions.classList.add('hidden');
@@ -1230,8 +1401,292 @@ function handleExecute() {
 /* ==========================================================================
    Renderização da Grid de Resultados
    ========================================================================== */
+function normalizeGridCellValue(val) {
+    if (val === null || val === undefined) return null;
+    if (typeof val === 'object') return JSON.stringify(val);
+    return val;
+}
+
+function formatGridCellForDisplay(val) {
+    const normalized = normalizeGridCellValue(val);
+    if (normalized === null) return '';
+    return String(normalized);
+}
+
+function parseLocaleNumber(value) {
+    if (typeof value === 'number' && !Number.isNaN(value)) return value;
+    const raw = String(value).trim();
+    if (raw === '') return null;
+    if (/^-?\d+$/.test(raw)) return Number(raw);
+    if (/^-?\d{1,3}(\.\d{3})+,\d+$/.test(raw) || /^-?\d+,\d+$/.test(raw)) {
+        const parsed = Number(raw.replace(/\./g, '').replace(',', '.'));
+        return Number.isNaN(parsed) ? null : parsed;
+    }
+    if (/^-?\d+(\.\d+)?$/.test(raw)) {
+        const parsed = Number(raw);
+        return Number.isNaN(parsed) ? null : parsed;
+    }
+    return null;
+}
+
+function isNumericGridValue(value) {
+    return parseLocaleNumber(value) !== null;
+}
+
+function parseGridDate(value) {
+    if (value instanceof Date && !Number.isNaN(value.getTime())) {
+        return value.getTime();
+    }
+    const raw = String(value).trim();
+    if (raw === '') return null;
+
+    if (/^\d{8}$/.test(raw)) {
+        const y = Number(raw.slice(0, 4));
+        const m = Number(raw.slice(4, 6));
+        const d = Number(raw.slice(6, 8));
+        const dt = new Date(y, m - 1, d);
+        return Number.isNaN(dt.getTime()) ? null : dt.getTime();
+    }
+
+    const brMatch = raw.match(/^(\d{2})\/(\d{2})\/(\d{4})(?:\s+(\d{2}):(\d{2})(?::(\d{2}))?)?$/);
+    if (brMatch) {
+        const dt = new Date(
+            Number(brMatch[3]),
+            Number(brMatch[2]) - 1,
+            Number(brMatch[1]),
+            Number(brMatch[4] || 0),
+            Number(brMatch[5] || 0),
+            Number(brMatch[6] || 0)
+        );
+        return Number.isNaN(dt.getTime()) ? null : dt.getTime();
+    }
+
+    const parsed = Date.parse(raw);
+    return Number.isNaN(parsed) ? null : parsed;
+}
+
+function isDateGridValue(value) {
+    return parseGridDate(value) !== null;
+}
+
+function inferGridColumnType(column, rows) {
+    const samples = [];
+    for (const row of rows) {
+        const value = normalizeGridCellValue(row[column]);
+        if (value === null || value === '') continue;
+        samples.push(value);
+        if (samples.length >= 150) break;
+    }
+    if (samples.length === 0) return 'string';
+
+    const booleanTokens = new Set(['true', 'false', 's', 'n', '0', '1', 'sim', 'nao', 'não', 'yes', 'no']);
+    if (samples.every(value => booleanTokens.has(String(value).trim().toLowerCase()))) {
+        return 'boolean';
+    }
+    if (samples.every(isNumericGridValue)) {
+        return 'number';
+    }
+    if (samples.every(isDateGridValue)) {
+        return 'date';
+    }
+    return 'string';
+}
+
+function inferGridColumnTypes(columns, rows) {
+    const types = {};
+    columns.forEach(column => {
+        types[column] = inferGridColumnType(column, rows);
+    });
+    return types;
+}
+
+function booleanSortRank(value) {
+    const token = String(value).trim().toLowerCase();
+    if (['true', 's', '1', 'sim', 'yes'].includes(token)) return 1;
+    if (['false', 'n', '0', 'nao', 'não', 'no'].includes(token)) return 0;
+    return 0;
+}
+
+function compareGridCellValues(a, b, type) {
+    const aEmpty = a === null || a === '';
+    const bEmpty = b === null || b === '';
+    if (aEmpty && bEmpty) return 0;
+    if (aEmpty) return 1;
+    if (bEmpty) return -1;
+
+    switch (type) {
+        case 'number': {
+            const numA = parseLocaleNumber(a);
+            const numB = parseLocaleNumber(b);
+            return (numA ?? 0) - (numB ?? 0);
+        }
+        case 'date': {
+            const dateA = parseGridDate(a);
+            const dateB = parseGridDate(b);
+            return (dateA ?? 0) - (dateB ?? 0);
+        }
+        case 'boolean':
+            return booleanSortRank(a) - booleanSortRank(b);
+        default:
+            return String(a).localeCompare(String(b), 'pt-BR', {
+                sensitivity: 'base',
+                numeric: true,
+                ignorePunctuation: true
+            });
+    }
+}
+
+function getGridSearchTerm() {
+    return gridSearchInput ? gridSearchInput.value.trim().toLowerCase() : '';
+}
+
+function filterGridRows(rows, columns) {
+    const term = getGridSearchTerm();
+    if (term === '') return rows;
+    return rows.filter(row => {
+        return columns.some(column => {
+            return formatGridCellForDisplay(row[column]).toLowerCase().includes(term);
+        });
+    });
+}
+
+function sortGridRows(rows, columns) {
+    if (!gridSortState.column) return rows;
+    const column = gridSortState.column;
+    const type = gridColumnTypes[column] || 'string';
+    const direction = gridSortState.direction === 'desc' ? -1 : 1;
+    return [...rows].sort((rowA, rowB) => {
+        const cmp = compareGridCellValues(
+            normalizeGridCellValue(rowA[column]),
+            normalizeGridCellValue(rowB[column]),
+            type
+        );
+        if (cmp !== 0) return cmp * direction;
+        return 0;
+    });
+}
+
+function getDisplayedGridRows() {
+    if (!currentQueryResult || !currentQueryResult.columns) return [];
+    const { columns, rows } = currentQueryResult;
+    return sortGridRows(filterGridRows(rows, columns), columns);
+}
+
+function updateGridTitle() {
+    const gridTitle = document.getElementById('grid-title');
+    if (!gridTitle || !currentQueryResult) return;
+
+    const totalCount = currentQueryResult.rows ? currentQueryResult.rows.length : 0;
+    const visibleCount = getDisplayedGridRows().length;
+    const term = getGridSearchTerm();
+
+    if (term === '') {
+        gridTitle.innerText = `Resultados (${totalCount.toLocaleString('pt-BR')})`;
+    } else {
+        gridTitle.innerText = `Resultados (${visibleCount.toLocaleString('pt-BR')} de ${totalCount.toLocaleString('pt-BR')})`;
+    }
+}
+
+function updateGridSortHeaderState() {
+    resultThead.querySelectorAll('.grid-sort-btn').forEach(btn => {
+        const column = btn.dataset.column;
+        btn.classList.remove('sorted-asc', 'sorted-desc');
+        if (gridSortState.column === column) {
+            btn.classList.add(gridSortState.direction === 'desc' ? 'sorted-desc' : 'sorted-asc');
+            btn.setAttribute('aria-sort', gridSortState.direction === 'desc' ? 'descending' : 'ascending');
+        } else {
+            btn.setAttribute('aria-sort', 'none');
+        }
+    });
+}
+
+function handleGridSort(column) {
+    if (gridSortState.column === column) {
+        gridSortState.direction = gridSortState.direction === 'asc' ? 'desc' : 'asc';
+    } else {
+        gridSortState.column = column;
+        gridSortState.direction = 'asc';
+    }
+    refreshGridTable();
+}
+
+function renderGridTableHead(columns) {
+    resultThead.innerHTML = '';
+    const trHead = document.createElement('tr');
+
+    columns.forEach(column => {
+        const th = document.createElement('th');
+        th.scope = 'col';
+
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'grid-sort-btn';
+        btn.dataset.column = column;
+        btn.setAttribute('aria-sort', 'none');
+        btn.title = `Ordenar por ${column}`;
+
+        const label = document.createElement('span');
+        label.className = 'grid-sort-label';
+        label.textContent = column;
+
+        const icon = document.createElement('span');
+        icon.className = 'grid-sort-icon';
+        icon.setAttribute('aria-hidden', 'true');
+        icon.innerHTML = `
+            <svg class="grid-sort-icon-neutral" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M8 9l4-4 4 4"></path>
+                <path d="M8 15l4 4 4-4"></path>
+            </svg>
+        `;
+
+        btn.appendChild(label);
+        btn.appendChild(icon);
+        btn.addEventListener('click', () => handleGridSort(column));
+        th.appendChild(btn);
+        trHead.appendChild(th);
+    });
+
+    resultThead.appendChild(trHead);
+    updateGridSortHeaderState();
+}
+
+function renderGridTableBody(columns, rows) {
+    resultTbody.innerHTML = '';
+    rows.forEach(row => {
+        const tr = document.createElement('tr');
+        columns.forEach(column => {
+            const td = document.createElement('td');
+            td.textContent = formatGridCellForDisplay(row[column]);
+            tr.appendChild(td);
+        });
+        resultTbody.appendChild(tr);
+    });
+}
+
+function refreshGridTable() {
+    if (!currentQueryResult || !currentQueryResult.columns) return;
+
+    const columns = currentQueryResult.columns;
+    const rows = getDisplayedGridRows();
+
+    updateGridSortHeaderState();
+    renderGridTableBody(columns, rows);
+    updateGridTitle();
+
+    const term = getGridSearchTerm();
+    if (rows.length === 0 && term !== '') {
+        resultTable.classList.add('hidden');
+        gridEmptyState.classList.remove('hidden');
+    } else {
+        resultTable.classList.remove('hidden');
+        gridEmptyState.classList.add('hidden');
+    }
+}
+
 function renderGrid(resultData, duration = null) {
     currentQueryResult = resultData;
+    gridSortState = { column: null, direction: 'asc' };
+    gridColumnTypes = {};
     gridContainer.classList.remove('hidden');
     resultThead.innerHTML = '';
     resultTbody.innerHTML = '';
@@ -1298,42 +1753,15 @@ function renderGrid(resultData, duration = null) {
     resultTable.classList.remove('hidden');
     gridEmptyState.classList.add('hidden');
 
-    // Usar as colunas retornadas pela API para manter a ordem do banco
-    const columns = resultData.columns;
-    const rows = resultData.rows;
-
-    // Renderizar Cabeçalho
-    const trHead = document.createElement('tr');
-    columns.forEach(col => {
-        const th = document.createElement('th');
-        th.innerText = col;
-        trHead.appendChild(th);
-    });
-    resultThead.appendChild(trHead);
-
-    // Renderizar Linhas
-    rows.forEach(row => {
-        const tr = document.createElement('tr');
-        columns.forEach(col => {
-            const td = document.createElement('td');
-            // Formatar se for objeto/null
-            let val = row[col];
-            if (val === null || val === undefined) val = '';
-            else if (typeof val === 'object') val = JSON.stringify(val);
-            
-            td.innerText = val;
-            tr.appendChild(td);
-        });
-        resultTbody.appendChild(tr);
-    });
+    gridColumnTypes = inferGridColumnTypes(resultData.columns, resultData.rows);
+    renderGridTableHead(resultData.columns);
+    renderGridTableBody(resultData.columns, resultData.rows);
 }
 
 function filterGrid() {
     if (!currentQueryResult) return;
+
     const value = gridSearchInput ? gridSearchInput.value.trim() : '';
-    const term = value.toLowerCase();
-    
-    // Mostrar/esconder botão de limpar
     if (clearGridSearchBtn) {
         if (value !== '') {
             clearGridSearchBtn.classList.remove('hidden');
@@ -1341,43 +1769,8 @@ function filterGrid() {
             clearGridSearchBtn.classList.add('hidden');
         }
     }
-    
-    const rows = resultTbody.querySelectorAll('tr');
-    let visibleCount = 0;
-    
-    rows.forEach(tr => {
-        let match = false;
-        tr.querySelectorAll('td').forEach(td => {
-            if (td.textContent.toLowerCase().includes(term)) {
-                match = true;
-            }
-        });
-        
-        if (term === '' || match) {
-            tr.classList.remove('hidden');
-            visibleCount++;
-        } else {
-            tr.classList.add('hidden');
-        }
-    });
 
-    const gridTitle = document.getElementById('grid-title');
-    if (gridTitle) {
-        const totalCount = currentQueryResult.rows ? currentQueryResult.rows.length : 0;
-        if (term === '') {
-            gridTitle.innerText = `Resultados (${totalCount.toLocaleString('pt-BR')})`;
-        } else {
-            gridTitle.innerText = `Resultados (${visibleCount.toLocaleString('pt-BR')} de ${totalCount.toLocaleString('pt-BR')})`;
-        }
-    }
-
-    if (visibleCount === 0 && term !== '') {
-        resultTable.classList.add('hidden');
-        gridEmptyState.classList.remove('hidden');
-    } else {
-        resultTable.classList.remove('hidden');
-        gridEmptyState.classList.add('hidden');
-    }
+    refreshGridTable();
 }
 
 /* ==========================================================================
@@ -1442,22 +1835,7 @@ function exportToCSV() {
     
     try {
         const columns = currentQueryResult.columns;
-        let rows = currentQueryResult.rows;
-        
-        // Filtrar apenas o que está visível na grid
-        const searchValue = gridSearchInput ? gridSearchInput.value.trim() : '';
-        if (searchValue !== '') {
-            const term = searchValue.toLowerCase();
-            rows = rows.filter(row => {
-                return columns.some(col => {
-                    let val = row[col];
-                    if (val === null || val === undefined) val = '';
-                    else if (typeof val === 'object') val = JSON.stringify(val);
-                    else val = String(val);
-                    return val.toLowerCase().includes(term);
-                });
-            });
-        }
+        const rows = getDisplayedGridRows();
         
         // BOM (Byte Order Mark) para UTF-8 (permite acentuação correta no Excel em PT-BR)
         let csvContent = '\uFEFF';
@@ -1514,22 +1892,7 @@ function exportToExcel() {
     
     try {
         const columns = currentQueryResult.columns;
-        let rows = currentQueryResult.rows;
-        
-        // Filtrar apenas o que está visível na grid
-        const searchValue = gridSearchInput ? gridSearchInput.value.trim() : '';
-        if (searchValue !== '') {
-            const term = searchValue.toLowerCase();
-            rows = rows.filter(row => {
-                return columns.some(col => {
-                    let val = row[col];
-                    if (val === null || val === undefined) val = '';
-                    else if (typeof val === 'object') val = JSON.stringify(val);
-                    else val = String(val);
-                    return val.toLowerCase().includes(term);
-                });
-            });
-        }
+        const rows = getDisplayedGridRows();
         
         // Montar matriz 2D com cabeçalho + dados
         const sheetData = [columns];

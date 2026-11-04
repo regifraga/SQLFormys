@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"log"
 	"net/http"
@@ -9,6 +10,7 @@ import (
 
 	"sqlformys/internal/config"
 	"sqlformys/internal/domain"
+	"sqlformys/internal/engine"
 )
 
 type QueryHandler struct {
@@ -107,6 +109,7 @@ func (h *QueryHandler) ExecuteQuery(w http.ResponseWriter, r *http.Request) {
 func (h *QueryHandler) ExecuteLookup(w http.ResponseWriter, r *http.Request) {
 	filepathParam := r.PathValue("filepath")
 	lookupName := strings.TrimSpace(r.URL.Query().Get("name"))
+	lookupField := strings.TrimSpace(r.URL.Query().Get("field"))
 	basePath := h.cfg.QueriesBasePath
 
 	if filepathParam == "" {
@@ -129,7 +132,7 @@ func (h *QueryHandler) ExecuteLookup(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	results, finalSQL, err := h.svc.ExecuteLookup(r.Context(), basePath, filepathParam, lookupName, payload, h.cfg.DBDriver, h.cfg.DBDsn)
+	results, finalSQL, err := h.svc.ExecuteLookup(r.Context(), basePath, filepathParam, lookupName, lookupField, payload, h.cfg.DBDriver, h.cfg.DBDsn)
 	if err != nil {
 		log.Printf("ERROR: Falha na execução do lookup %s em %s | Driver: %s | Payload: %+v | Erro: %v | SQL Gerado: %s",
 			lookupName, filepathParam, h.cfg.DBDriver, payload, err, finalSQL)
@@ -140,6 +143,10 @@ func (h *QueryHandler) ExecuteLookup(w http.ResponseWriter, r *http.Request) {
 		status := http.StatusInternalServerError
 		if strings.Contains(strings.ToLower(err.Error()), "não encontrado") {
 			status = http.StatusNotFound
+		}
+		var preErr *engine.LookupPrerequisiteError
+		if errors.As(err, &preErr) {
+			status = http.StatusBadRequest
 		}
 		respondWithError(w, status, err.Error(), debugQuery)
 		return

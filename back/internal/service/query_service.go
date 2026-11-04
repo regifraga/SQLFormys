@@ -100,6 +100,7 @@ func (s *queryService) GetMetadata(basePath, queryPath string) (domain.MetadataR
 		ExecuteMode: parser.ExecuteMode,
 		Timeout:     parser.Timeout,
 		Fields:      parser.Fields,
+		Lookups:     engine.BuildLookupsMetadata(parser.Lookups, parser.Fields),
 	}, nil
 }
 
@@ -119,7 +120,7 @@ func (s *queryService) ExecuteQuery(ctx context.Context, basePath, queryPath str
 	return s.runPreparedSQL(ctx, parser, finalSQL, payload, defaultDriver, defaultDsn)
 }
 
-func (s *queryService) ExecuteLookup(ctx context.Context, basePath, queryPath, lookupName string, payload map[string]interface{}, defaultDriver, defaultDsn string) (domain.LookupResult, string, error) {
+func (s *queryService) ExecuteLookup(ctx context.Context, basePath, queryPath, lookupName, lookupField string, payload map[string]interface{}, defaultDriver, defaultDsn string) (domain.LookupResult, string, error) {
 	sqlFilePath := filepath.Join(basePath, queryPath+".sql")
 	content, err := os.ReadFile(sqlFilePath)
 	if err != nil {
@@ -134,6 +135,10 @@ func (s *queryService) ExecuteLookup(ctx context.Context, basePath, queryPath, l
 	lookupSQL, ok := parser.LookupSQL(lookupName)
 	if !ok || strings.TrimSpace(lookupSQL) == "" {
 		return domain.LookupResult{}, "", fmt.Errorf("lookup %q não encontrado no arquivo SQL", lookupName)
+	}
+
+	if err := engine.ValidateLookupPrerequisites(lookupSQL, lookupField, parser.Fields, payload); err != nil {
+		return domain.LookupResult{}, "", err
 	}
 
 	finalSQL := engine.InjectLookupValues(string(content), lookupSQL, payload, parser.Fields, defaultDriver)

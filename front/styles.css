@@ -698,6 +698,37 @@ body.is-resizing .main-content {
     flex-shrink: 0;
 }
 
+.custom-select-search {
+    padding: 4px 6px 8px;
+    border-bottom: 1px solid var(--border-color);
+    margin-bottom: 4px;
+    flex-shrink: 0;
+}
+
+.custom-select-search-input {
+    width: 100%;
+    padding: 8px 10px;
+    font-size: 0.875rem;
+}
+
+.custom-select-search-input:focus {
+    outline: none;
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.custom-select-empty {
+    padding: 12px 10px;
+    font-size: 0.875rem;
+    color: var(--text-muted);
+    text-align: center;
+    flex-shrink: 0;
+}
+
+.custom-select-menu [role="option"].is-filtered-out {
+    display: none;
+}
+
 .custom-select-action {
     font-size: 0.75rem;
     font-weight: 600;
@@ -1022,6 +1053,64 @@ body.is-resizing .main-content {
     font-size: 0.75rem;
     letter-spacing: 0.5px;
     white-space: nowrap;
+    padding: 0;
+    vertical-align: middle;
+}
+
+.grid-sort-btn {
+    width: 100%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 12px 16px;
+    border: none;
+    background: transparent;
+    font: inherit;
+    font-weight: 600;
+    color: inherit;
+    letter-spacing: inherit;
+    text-align: left;
+    cursor: pointer;
+    transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.grid-sort-btn:hover {
+    background-color: rgba(59, 130, 246, 0.06);
+    color: var(--text-primary);
+}
+
+.grid-sort-btn:focus-visible {
+    outline: 2px solid var(--primary-color);
+    outline-offset: -2px;
+}
+
+.grid-sort-label {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.grid-sort-icon {
+    flex-shrink: 0;
+    display: inline-flex;
+    color: var(--text-muted);
+    opacity: 0.55;
+}
+
+.grid-sort-btn:hover .grid-sort-icon,
+.grid-sort-btn.sorted-asc .grid-sort-icon,
+.grid-sort-btn.sorted-desc .grid-sort-icon {
+    opacity: 1;
+    color: var(--primary-color);
+}
+
+.grid-sort-btn.sorted-asc .grid-sort-icon-neutral {
+    transform: rotate(180deg);
+}
+
+.grid-sort-btn.sorted-desc .grid-sort-icon-neutral {
+    transform: none;
 }
 
 .data-table tbody tr {

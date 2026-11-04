@@ -147,7 +147,7 @@ Then point a field at that name:
 -- SELECT @?CD_USUARIO:LOOKUP(NomeDoLookUp):VARCHAR:10:=:User::Pick a user
 ```
 
-Opening the dropdown in the UI runs `POST /api/lookups/{module}?name=NomeDoLookUp` with the current form values. The lookup SQL receives the same variables as the main query (`SELECT @CD_EMPRESA=...` on SQL Server, `current_setting('vars.CD_EMPRESA')` on PostgreSQL) and also supports `/*[VAR=VAL]*/.../*[/VAR]*/` fragments.
+Opening the dropdown in the UI runs `POST /api/lookups/{module}?name=NomeDoLookUp` with the current form values. The lookup SQL receives the same variables as the main query (`SELECT @CD_EMPRESA=...` on SQL Server, `current_setting('vars.CD_EMPRESA')` on PostgreSQL) and also supports `/*[VAR=VAL]*/.../*[/VAR]*/` fragments. After options load, the dropdown includes a **search box** that filters the list locally by code or label.
 
 The lookup result should expose **Code** (option value) and **Value** (option label). If those aliases are missing, the first two columns are used. Lookup blocks are stripped before the main module query runs.
 

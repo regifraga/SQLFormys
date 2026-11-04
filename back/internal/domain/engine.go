@@ -25,11 +25,17 @@ type TreeNode struct {
 
 // MetadataResponse is the return object for the GET metadata endpoint
 type MetadataResponse struct {
-	Server      string  `json:"server"`
-	Description string  `json:"description"`
-	ExecuteMode string  `json:"executeMode"`
-	Timeout     int     `json:"timeout"`
-	Fields      []Field `json:"fields"`
+	Server      string                    `json:"server"`
+	Description string                    `json:"description"`
+	ExecuteMode string                    `json:"executeMode"`
+	Timeout     int                       `json:"timeout"`
+	Fields      []Field                   `json:"fields"`
+	Lookups     map[string]LookupMetadata `json:"lookups,omitempty"`
+}
+
+// LookupMetadata describes a named lookup block declared in the SQL module.
+type LookupMetadata struct {
+	DependsOn []string `json:"dependsOn"`
 }
 
 // QueryResult represents the result of a dynamic query execution, preserving column order.
@@ -54,5 +60,5 @@ type DynamicQueryService interface {
 	ListProjects(basePath string) ([]TreeNode, error)
 	GetMetadata(basePath, queryPath string) (MetadataResponse, error)
 	ExecuteQuery(ctx context.Context, basePath, queryPath string, payload map[string]interface{}, defaultDriver, defaultDsn string) (QueryResult, string, error)
-	ExecuteLookup(ctx context.Context, basePath, queryPath, lookupName string, payload map[string]interface{}, defaultDriver, defaultDsn string) (LookupResult, string, error)
+	ExecuteLookup(ctx context.Context, basePath, queryPath, lookupName, lookupField string, payload map[string]interface{}, defaultDriver, defaultDsn string) (LookupResult, string, error)
 }
