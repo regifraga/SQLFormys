@@ -5,6 +5,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"strings"
 
 	"sqlformys/internal/config"
 	"sqlformys/internal/domain"
@@ -96,6 +97,51 @@ func (h *QueryHandler) ExecuteQuery(w http.ResponseWriter, r *http.Request) {
 			debugQuery = finalSQL
 		}
 		respondWithError(w, http.StatusInternalServerError, err.Error(), debugQuery)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(results)
+}
+
+func (h *QueryHandler) ExecuteLookup(w http.ResponseWriter, r *http.Request) {
+	filepathParam := r.PathValue("filepath")
+	lookupName := strings.TrimSpace(r.URL.Query().Get("name"))
+	basePath := h.cfg.QueriesBasePath
+
+	if filepathParam == "" {
+		respondWithError(w, http.StatusBadRequest, "O parâmetro filepath é obrigatório")
+		return
+	}
+	if lookupName == "" {
+		respondWithError(w, http.StatusBadRequest, "O parâmetro name é obrigatório")
+		return
+	}
+
+	var payload map[string]interface{}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		if err == io.EOF {
+			payload = make(map[string]interface{})
+		} else {
+			log.Printf("ERROR: Falha ao decodificar JSON body em ExecuteLookup para %s (%s): %v", filepathParam, lookupName, err)
+			respondWithError(w, http.StatusBadRequest, "Formato de payload inválido, esperado JSON Object")
+			return
+		}
+	}
+
+	results, finalSQL, err := h.svc.ExecuteLookup(r.Context(), basePath, filepathParam, lookupName, payload, h.cfg.DBDriver, h.cfg.DBDsn)
+	if err != nil {
+		log.Printf("ERROR: Falha na execução do lookup %s em %s | Driver: %s | Payload: %+v | Erro: %v | SQL Gerado: %s",
+			lookupName, filepathParam, h.cfg.DBDriver, payload, err, finalSQL)
+		var debugQuery string
+		if h.cfg.Environment == "development" || h.cfg.Environment == "local" {
+			debugQuery = finalSQL
+		}
+		status := http.StatusInternalServerError
+		if strings.Contains(strings.ToLower(err.Error()), "não encontrado") {
+			status = http.StatusNotFound
+		}
+		respondWithError(w, status, err.Error(), debugQuery)
 		return
 	}
 

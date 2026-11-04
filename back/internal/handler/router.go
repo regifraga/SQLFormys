@@ -26,6 +26,7 @@ func NewRouter() *http.ServeMux {
 	mux.HandleFunc("GET /api/projects", queryHandler.ListProjects)
 	mux.HandleFunc("GET /api/queries/{filepath...}", queryHandler.GetMetadata)
 	mux.HandleFunc("POST /api/queries/{filepath...}", queryHandler.ExecuteQuery)
+	mux.HandleFunc("POST /api/lookups/{filepath...}", queryHandler.ExecuteLookup)
 
 	// Rota padrão para 404 (JSON)
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {

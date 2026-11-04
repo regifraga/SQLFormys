@@ -115,8 +115,10 @@ Basic shape:
 | `DATE` / `DATETIME` / `TIMESTAMP` | Date picker | `@?#DT_INICIAL:DATE:8:=:Start date` |
 | `SINGLE(value=label,...)` | Single-select dropdown | `@?IC_TIPO:SINGLE(S=Simple,V=Several):VARCHAR:10:=:Type:N` |
 | `MULTI(...)` or `MULTIPLE(...)` | Multi-select dropdown | `@?#SG_UF:MULTI(SP=São Paulo,RJ=Rio de Janeiro):VARCHAR:80:=:States:SP,RJ` |
+| `LOOKUP(Name)` | Single-select filled by a named query in the same `.sql` file | `@?CD_USUARIO:LOOKUP(NomeDoLookUp):VARCHAR:10:=:User` |
+| `LOOKUP_MULTI(Name)` | Multi-select filled by a named query | `@?#SG_UF:LOOKUP_MULTI(UFsAtendimento):VARCHAR:80:=:States` |
 
-`SINGLE` / `MULTI` need an extra SQL type after the parentheses (`VARCHAR`, `INT`, …). That is the type sent to the database.
+`SINGLE` / `MULTI` / `LOOKUP` / `LOOKUP_MULTI` need an extra SQL type after the parentheses (`VARCHAR`, `INT`, …). That is the type sent to the database.
 
 Option and multi-default separators: `,` `;` or `|`.
 
@@ -125,7 +127,29 @@ Option and multi-default separators: `,` `;` or `|`.
 -- SELECT @?#SG_UF:MULTI(AC=Acre,AL=Alagoas,SP=São Paulo,RJ=Rio de Janeiro,MG=Minas Gerais):VARCHAR:80:=:States:SP,RJ:Select one or more UFs
 ```
 
-There is no dedicated `TEXTAREA`, `TIME`, or `BOOLEAN` type. Anything that is not `CHAR:1`, a date, a number, `SINGLE`, or `MULTI` is rendered as a text box.
+There is no dedicated `TEXTAREA`, `TIME`, or `BOOLEAN` type. Anything that is not `CHAR:1`, a date, a number, `SINGLE`, `MULTI`, or `LOOKUP` is rendered as a text box.
+
+### Lookup queries (dynamic dropdowns)
+
+Use `LOOKUP` when the options should come from the database instead of a static list. Define a named query in the same `.sql` file (outside `--<PROPERTIES>`):
+
+```sql
+--<LOOKUP NomeDoLookUp>
+SELECT CdUsuario AS Code, NmUsuario AS Value
+FROM COR_USUARIO
+WHERE CdEmpresa = @CD_EMPRESA
+--</LOOKUP>
+```
+
+Then point a field at that name:
+
+```sql
+-- SELECT @?CD_USUARIO:LOOKUP(NomeDoLookUp):VARCHAR:10:=:User::Pick a user
+```
+
+Opening the dropdown in the UI runs `POST /api/lookups/{module}?name=NomeDoLookUp` with the current form values. The lookup SQL receives the same variables as the main query (`SELECT @CD_EMPRESA=...` on SQL Server, `current_setting('vars.CD_EMPRESA')` on PostgreSQL) and also supports `/*[VAR=VAL]*/.../*[/VAR]*/` fragments.
+
+The lookup result should expose **Code** (option value) and **Value** (option label). If those aliases are missing, the first two columns are used. Lookup blocks are stripped before the main module query runs.
 
 ### Operators
 

@@ -38,9 +38,21 @@ type QueryResult struct {
 	Rows    []map[string]interface{} `json:"rows"`
 }
 
+// LookupOption is a dropdown item produced by a named LOOKUP query.
+type LookupOption struct {
+	Code  interface{} `json:"code"`
+	Value interface{} `json:"value"`
+}
+
+// LookupResult is the return object for POST /api/lookups/{filepath}
+type LookupResult struct {
+	Options []LookupOption `json:"options"`
+}
+
 // DynamicQueryService defines the business logic for dynamic SQL execution
 type DynamicQueryService interface {
 	ListProjects(basePath string) ([]TreeNode, error)
 	GetMetadata(basePath, queryPath string) (MetadataResponse, error)
 	ExecuteQuery(ctx context.Context, basePath, queryPath string, payload map[string]interface{}, defaultDriver, defaultDsn string) (QueryResult, string, error)
+	ExecuteLookup(ctx context.Context, basePath, queryPath, lookupName string, payload map[string]interface{}, defaultDriver, defaultDsn string) (LookupResult, string, error)
 }

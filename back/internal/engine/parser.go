@@ -17,6 +17,7 @@ type SQLParser struct {
 	ExecuteMode string
 	Timeout     int
 	Fields      []domain.Field
+	Lookups     map[string]string
 }
 
 var (
@@ -35,8 +36,43 @@ var (
 	// Matches the properties block, including multiline content
 	propertiesRegex = regexp.MustCompile(`(?si)--\s*<PROPERTIES>\s*\r?\n(.*?)\r?\n\s*--\s*</PROPERTIES>\s*`)
 
+	// Matches named lookup queries: --<LOOKUP NomeDoLookUp> ... --</LOOKUP>
+	lookupBlockRegex = regexp.MustCompile(`(?si)--\s*<LOOKUP\s+([A-Za-z][A-Za-z0-9_]*)\s*>\s*(.*?)\s*--\s*</LOOKUP>`)
+
 	fieldNameRegex = regexp.MustCompile(`[@?#]+([A-Za-z0-9_.]+)`)
 )
+
+func isChoiceFieldLine(line string) bool {
+	typeUpper := strings.ToUpper(line)
+	return strings.Contains(typeUpper, ":SINGLE(") ||
+		strings.Contains(typeUpper, ":MULTI(") ||
+		strings.Contains(typeUpper, ":MULTIPLE(") ||
+		strings.Contains(typeUpper, ":LOOKUP(") ||
+		strings.Contains(typeUpper, ":LOOKUP_MULTI(") ||
+		strings.Contains(typeUpper, ":MULTILOOKUP(")
+}
+
+// StripLookupBlocks removes --<LOOKUP ...> ... --</LOOKUP> sections so they are
+// never executed as part of the main module query.
+func StripLookupBlocks(sqlContent string) string {
+	return lookupBlockRegex.ReplaceAllString(sqlContent, "")
+}
+
+// LookupSQL returns the inner SQL of a named lookup block (case-insensitive).
+func (p *SQLParser) LookupSQL(name string) (string, bool) {
+	if p == nil || p.Lookups == nil {
+		return "", false
+	}
+	if sql, ok := p.Lookups[name]; ok {
+		return sql, true
+	}
+	for key, sql := range p.Lookups {
+		if strings.EqualFold(key, name) {
+			return sql, true
+		}
+	}
+	return "", false
+}
 
 func splitMetadataLine(line string, maxSplits int) []string {
 	parts := make([]string, 0, maxSplits+1)
@@ -61,6 +97,15 @@ func ParseMetadata(sqlContent string) (*SQLParser, error) {
 	parser := &SQLParser{
 		OriginalSQL: sqlContent,
 		Fields:      make([]domain.Field, 0),
+		Lookups:     make(map[string]string),
+	}
+
+	for _, match := range lookupBlockRegex.FindAllStringSubmatch(sqlContent, -1) {
+		if len(match) < 3 {
+			continue
+		}
+		lookupName := strings.TrimSpace(match[1])
+		parser.Lookups[lookupName] = strings.TrimSpace(match[2])
 	}
 
 	// Extract Server if present
@@ -116,10 +161,7 @@ func ParseMetadata(sqlContent string) (*SQLParser, error) {
 		var information string
 		var dbTypeVal string
 
-		typeUpper := strings.ToUpper(line)
-		isSingle := strings.Contains(typeUpper, ":SINGLE(")
-		isMulti := strings.Contains(typeUpper, ":MULTI(") || strings.Contains(typeUpper, ":MULTIPLE(")
-		isExtended := isSingle || isMulti
+		isExtended := isChoiceFieldLine(line)
 
 		if isExtended {
 			parts := splitMetadataLine(line, 7)
@@ -127,7 +169,7 @@ func ParseMetadata(sqlContent string) (*SQLParser, error) {
 				continue
 			}
 			fieldPart = parts[0]
-			typePart = parts[1] // Keep casing for options like SINGLE(S=Simples) or MULTI(...)
+			typePart = parts[1] // Keep casing for options like SINGLE(...) / MULTI(...) / LOOKUP(...)
 			dbTypeVal = strings.ToUpper(strings.TrimSpace(parts[2]))
 			sizePart = strings.TrimSpace(parts[3])
 			operatorPart = strings.TrimSpace(parts[4])
@@ -182,9 +224,7 @@ func ParseMetadata(sqlContent string) (*SQLParser, error) {
 	return parser, nil
 }
 
-// InjectValues takes the original SQL and user values, replaces the PROPERTIES block with SELECT injections (or SET statements for Postgres)
-func InjectValues(sqlContent string, values map[string]interface{}, fields []domain.Field, driver string) string {
-	// Process conditional comments: /*[VAR=VAL]*/content/*[/VAR]*/
+func applyConditionalComments(sqlContent string, values map[string]interface{}, fields []domain.Field) string {
 	startRegex := regexp.MustCompile(`/\*\[([A-Za-z0-9_.]+)=([^\]]+)\]\*/`)
 	for {
 		loc := startRegex.FindStringSubmatchIndex(sqlContent)
@@ -197,11 +237,9 @@ func InjectValues(sqlContent string, values map[string]interface{}, fields []dom
 		varName := sqlContent[loc[2]:loc[3]]
 		targetVal := sqlContent[loc[4]:loc[5]]
 
-		// Find the closing tag: /*[/VAR]*/
 		closingTag := fmt.Sprintf("/*[/%s]*/", varName)
 		closingIndex := strings.Index(sqlContent[fullEnd:], closingTag)
 		if closingIndex == -1 {
-			// If no closing tag is found, remove the opening tag to avoid infinite loop
 			sqlContent = sqlContent[:fullStart] + sqlContent[fullEnd:]
 			continue
 		}
@@ -216,7 +254,6 @@ func InjectValues(sqlContent string, values map[string]interface{}, fields []dom
 		if exists && val != nil {
 			valStr = fmt.Sprintf("%v", val)
 		} else {
-			// Fallback to default value from fields metadata
 			for _, f := range fields {
 				if f.Field == varName {
 					valStr = f.DefaultValue
@@ -232,19 +269,49 @@ func InjectValues(sqlContent string, values map[string]interface{}, fields []dom
 
 		sqlContent = sqlContent[:fullStart] + replacement + sqlContent[actualClosingEnd:]
 	}
+	return sqlContent
+}
 
-	isPostgres := driver == "postgres" || driver == "pgx"
+func isPostgresDriver(driver string) bool {
+	return driver == "postgres" || driver == "pgx"
+}
 
-	if isPostgres {
+// InjectValues takes the original SQL and user values, replaces the PROPERTIES block with SELECT injections (or SET statements for Postgres)
+func InjectValues(sqlContent string, values map[string]interface{}, fields []domain.Field, driver string) string {
+	sqlContent = StripLookupBlocks(sqlContent)
+	sqlContent = applyConditionalComments(sqlContent, values, fields)
+
+	if isPostgresDriver(driver) {
 		// In Postgres, session variables are set in a transaction before query execution,
 		// so we do not inject any SQL statements in place of the properties block.
 		return propertiesRegex.ReplaceAllString(sqlContent, "")
 	}
 
-	// Extract Properties block content to parse prefixes on the fly
+	injectionBlock := buildInjectionBlock(sqlContent, values, fields)
+	if injectionBlock == "" && propertiesRegex.FindStringSubmatch(sqlContent) == nil {
+		return sqlContent
+	}
+	return propertiesRegex.ReplaceAllString(sqlContent, injectionBlock)
+}
+
+// InjectLookupValues prepares a named lookup query with the same form variables as the main module.
+func InjectLookupValues(fileContent, lookupSQL string, values map[string]interface{}, fields []domain.Field, driver string) string {
+	lookupSQL = applyConditionalComments(lookupSQL, values, fields)
+	if isPostgresDriver(driver) {
+		return lookupSQL
+	}
+
+	injections := buildInjectionBlock(StripLookupBlocks(fileContent), values, fields)
+	if injections == "" {
+		return lookupSQL
+	}
+	return injections + "\n" + lookupSQL
+}
+
+func buildInjectionBlock(sqlContent string, values map[string]interface{}, fields []domain.Field) string {
 	propMatch := propertiesRegex.FindStringSubmatch(sqlContent)
 	if len(propMatch) == 0 {
-		return sqlContent // No properties block found
+		return ""
 	}
 
 	propertiesBlock := propMatch[1]
@@ -260,8 +327,7 @@ func InjectValues(sqlContent string, values map[string]interface{}, fields []dom
 		}
 
 		maxSplits := 6
-		typeUpper := strings.ToUpper(line)
-		if strings.Contains(typeUpper, ":SINGLE(") || strings.Contains(typeUpper, ":MULTI(") || strings.Contains(typeUpper, ":MULTIPLE(") {
+		if isChoiceFieldLine(line) {
 			maxSplits = 7
 		}
 		parts := splitMetadataLine(line, maxSplits)
@@ -371,7 +437,5 @@ func InjectValues(sqlContent string, values map[string]interface{}, fields []dom
 		injections = append(injections, lineInject)
 	}
 
-	injectionBlock := strings.Join(injections, "\n")
-	finalSQL := propertiesRegex.ReplaceAllString(sqlContent, injectionBlock)
-	return finalSQL
+	return strings.Join(injections, "\n")
 }

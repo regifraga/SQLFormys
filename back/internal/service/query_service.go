@@ -115,6 +115,39 @@ func (s *queryService) ExecuteQuery(ctx context.Context, basePath, queryPath str
 		return domain.QueryResult{}, "", fmt.Errorf("erro ao fazer parse do SQL: %w", err)
 	}
 
+	finalSQL := engine.InjectValues(string(content), payload, parser.Fields, defaultDriver)
+	return s.runPreparedSQL(ctx, parser, finalSQL, payload, defaultDriver, defaultDsn)
+}
+
+func (s *queryService) ExecuteLookup(ctx context.Context, basePath, queryPath, lookupName string, payload map[string]interface{}, defaultDriver, defaultDsn string) (domain.LookupResult, string, error) {
+	sqlFilePath := filepath.Join(basePath, queryPath+".sql")
+	content, err := os.ReadFile(sqlFilePath)
+	if err != nil {
+		return domain.LookupResult{}, "", fmt.Errorf("erro ao ler arquivo SQL: %w", err)
+	}
+
+	parser, err := engine.ParseMetadata(string(content))
+	if err != nil {
+		return domain.LookupResult{}, "", fmt.Errorf("erro ao fazer parse do SQL: %w", err)
+	}
+
+	lookupSQL, ok := parser.LookupSQL(lookupName)
+	if !ok || strings.TrimSpace(lookupSQL) == "" {
+		return domain.LookupResult{}, "", fmt.Errorf("lookup %q não encontrado no arquivo SQL", lookupName)
+	}
+
+	finalSQL := engine.InjectLookupValues(string(content), lookupSQL, payload, parser.Fields, defaultDriver)
+	result, sql, err := s.runPreparedSQL(ctx, parser, finalSQL, payload, defaultDriver, defaultDsn)
+	if err != nil {
+		return domain.LookupResult{}, sql, err
+	}
+
+	return domain.LookupResult{
+		Options: engine.MapLookupOptions(result),
+	}, sql, nil
+}
+
+func (s *queryService) runPreparedSQL(ctx context.Context, parser *engine.SQLParser, finalSQL string, payload map[string]interface{}, defaultDriver, defaultDsn string) (domain.QueryResult, string, error) {
 	driver := defaultDriver
 	dsn := defaultDsn
 
@@ -124,8 +157,6 @@ func (s *queryService) ExecuteQuery(ctx context.Context, basePath, queryPath str
 	}
 	ctx, cancel := context.WithTimeout(ctx, time.Duration(timeout)*time.Second)
 	defer cancel()
-
-	finalSQL := engine.InjectValues(string(content), payload, parser.Fields, driver)
 
 	if parser.Server != "" {
 		// Se a query aponta para 'localhost' mas o DSN padrão usa 'db' (ex: rodando via Docker Compose),
@@ -205,7 +236,7 @@ func (s *queryService) ExecuteQuery(ctx context.Context, basePath, queryPath str
 		rowData := make(map[string]interface{})
 		for i, colName := range columns {
 			val := columnValues[i]
-			
+
 			b, ok := val.([]byte)
 			if ok {
 				rowData[colName] = string(b)

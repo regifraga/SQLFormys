@@ -99,3 +99,27 @@ curl -X POST "http://localhost:8080/api/queries/IMS%20Arquivos/Consulta%20de%20A
   }
 ]
 ```
+
+---
+
+## 4. Executar um LOOKUP (dropdown dinâmico)
+Este endpoint executa a query nomeada `--<LOOKUP NomeDoLookUp>` definida no mesmo arquivo `.sql` do módulo, injetando as variáveis atuais do formulário.
+
+**Requisição:**
+```bash
+curl -X POST "http://localhost:8080/api/lookups/IMS%20Arquivos/Consulta%20de%20Arquivo?name=NomeDoLookUp" \
+     -H "Content-Type: application/json" \
+     -d '{
+           "CD_EMPRESA": 2
+         }'
+```
+
+**Retorno Esperado:**
+```json
+{
+  "options": [
+    { "code": 1, "value": "Alice" },
+    { "code": 2, "value": "Bob" }
+  ]
+}
+```

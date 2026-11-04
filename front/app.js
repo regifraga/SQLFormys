@@ -494,6 +494,123 @@ function positionCustomSelectMenu(wrapper) {
     }
 }
 
+function parseLookupName(type) {
+    if (!type) return null;
+    const match = String(type).match(/^(?:LOOKUP_MULTI|MULTILOOKUP|LOOKUP)\(([^)]+)\)/i);
+    return match ? match[1].trim() : null;
+}
+
+function isLookupMultiType(type) {
+    return /^(LOOKUP_MULTI|MULTILOOKUP)\(/i.test(type || '');
+}
+
+function collectFormValues(includeEmpty = false) {
+    const payload = {};
+    const inputs = dynamicForm.querySelectorAll('.form-control, .form-radio');
+
+    inputs.forEach(input => {
+        if (input.type === 'radio') {
+            if (input.checked) {
+                payload[input.name] = input.value;
+            }
+            return;
+        }
+        if (input.tagName === 'SELECT' && input.multiple) {
+            const selectedValues = Array.from(input.selectedOptions).map(opt => opt.value);
+            if (selectedValues.length > 0 || input.required || includeEmpty) {
+                payload[input.name] = selectedValues.join(',');
+            }
+            return;
+        }
+        if (input.value !== '' || input.required || includeEmpty) {
+            payload[input.name] = input.value;
+        }
+    });
+
+    return payload;
+}
+
+function optionText(option) {
+    if (option.value === undefined || option.value === null) return '';
+    return String(option.value);
+}
+
+function optionCode(option) {
+    if (option.code === undefined || option.code === null) return '';
+    return String(option.code);
+}
+
+async function loadLookupOptions(select) {
+    const lookupName = select.dataset.lookupName;
+    if (!lookupName || !currentQueryPath || select.dataset.lookupLoading === 'true') return;
+
+    const previousValues = select.multiple
+        ? Array.from(select.selectedOptions).map(opt => opt.value)
+        : [select.value];
+
+    select.dataset.lookupLoading = 'true';
+    try {
+        const response = await fetch(`${API_BASE_URL}/lookups/${currentQueryPath}?name=${encodeURIComponent(lookupName)}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(collectFormValues(true))
+        });
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            let errorMessage = errorText;
+            try {
+                const errorJson = JSON.parse(errorText);
+                if (errorJson.error) {
+                    errorMessage = errorJson.error;
+                }
+            } catch (e) {
+                // keep raw text
+            }
+            throw new Error(errorMessage || 'Falha ao carregar opções do lookup');
+        }
+
+        const result = await response.json();
+        const options = Array.isArray(result.options) ? result.options : [];
+        const keepEmpty = !select.multiple && !select.required;
+
+        select.innerHTML = '';
+        if (keepEmpty) {
+            const emptyOption = document.createElement('option');
+            emptyOption.value = '';
+            emptyOption.text = '';
+            select.appendChild(emptyOption);
+        }
+
+        options.forEach(opt => {
+            const option = document.createElement('option');
+            option.value = optionCode(opt);
+            option.text = optionText(opt) || option.value;
+            select.appendChild(option);
+        });
+
+        if (select.multiple) {
+            Array.from(select.options).forEach(option => {
+                option.selected = previousValues.includes(option.value);
+            });
+        } else if (previousValues[0] && Array.from(select.options).some(option => option.value === previousValues[0])) {
+            select.value = previousValues[0];
+        } else if (keepEmpty) {
+            select.value = '';
+        }
+
+        select.dispatchEvent(new Event('options-updated', { bubbles: true }));
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+    } catch (error) {
+        console.error(error);
+        showToast('Erro', error.message || 'Não foi possível carregar as opções do lookup.', 'error');
+    } finally {
+        delete select.dataset.lookupLoading;
+    }
+}
+
 function enhanceCustomSelect(select) {
     if (!select || select.dataset.customSelect === 'true') return;
 
@@ -595,34 +712,38 @@ function enhanceCustomSelect(select) {
         }
     }
 
-    Array.from(select.options).forEach(option => {
-        const li = document.createElement('li');
-        li.setAttribute('role', 'option');
-        li.dataset.value = option.value;
-        li.tabIndex = -1;
-        if (!option.value) {
-            li.classList.add('empty-option');
-        }
+    function rebuildList() {
+        list.innerHTML = '';
+        Array.from(select.options).forEach(option => {
+            const li = document.createElement('li');
+            li.setAttribute('role', 'option');
+            li.dataset.value = option.value;
+            li.tabIndex = -1;
+            if (!option.value) {
+                li.classList.add('empty-option');
+            }
 
-        if (isMultiple) {
-            const box = document.createElement('span');
-            box.className = 'custom-select-check';
-            box.setAttribute('aria-hidden', 'true');
-            const label = document.createElement('span');
-            label.className = 'custom-select-option-label';
-            label.textContent = option.text || option.value;
-            li.appendChild(box);
-            li.appendChild(label);
-        } else {
-            li.textContent = option.text ? option.text : '—';
-        }
+            if (isMultiple) {
+                const box = document.createElement('span');
+                box.className = 'custom-select-check';
+                box.setAttribute('aria-hidden', 'true');
+                const label = document.createElement('span');
+                label.className = 'custom-select-option-label';
+                label.textContent = option.text || option.value;
+                li.appendChild(box);
+                li.appendChild(label);
+            } else {
+                li.textContent = option.text ? option.text : '—';
+            }
 
-        li.addEventListener('click', (e) => {
-            e.preventDefault();
-            toggleOption(option);
+            li.addEventListener('click', (e) => {
+                e.preventDefault();
+                toggleOption(option);
+            });
+            list.appendChild(li);
         });
-        list.appendChild(li);
-    });
+        syncFromSelect();
+    }
 
     menu.appendChild(list);
 
@@ -674,7 +795,12 @@ function enhanceCustomSelect(select) {
         trigger.focus();
     });
 
-    function openMenu() {
+    async function openMenu() {
+        if (select.dataset.lookupName) {
+            valueSpan.textContent = 'Carregando...';
+            valueSpan.classList.add('placeholder');
+            await loadLookupOptions(select);
+        }
         closeAllCustomSelects(wrapper);
         wrapper.classList.add('open');
         trigger.setAttribute('aria-expanded', 'true');
@@ -684,20 +810,20 @@ function enhanceCustomSelect(select) {
         if (selected) selected.focus();
     }
 
-    trigger.addEventListener('click', (e) => {
+    trigger.addEventListener('click', async (e) => {
         e.preventDefault();
         if (wrapper.classList.contains('open')) {
             closeCustomSelect(wrapper);
         } else {
-            openMenu();
+            await openMenu();
         }
     });
 
-    trigger.addEventListener('keydown', (e) => {
+    trigger.addEventListener('keydown', async (e) => {
         if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Enter' || e.key === ' ') {
             e.preventDefault();
             if (!wrapper.classList.contains('open')) {
-                openMenu();
+                await openMenu();
             }
         }
     });
@@ -734,7 +860,8 @@ function enhanceCustomSelect(select) {
 
     wrapper.appendChild(trigger);
     wrapper.appendChild(menu);
-    syncFromSelect();
+    select.addEventListener('options-updated', rebuildList);
+    rebuildList();
 }
 
 /* ==========================================================================
@@ -854,10 +981,12 @@ function renderForm(queryPath, moduleTitle, fields, description = '', executeMod
             label.appendChild(infoSpan);
         }
 
-        // Se o tipo for SINGLE ou MULTI/MULTIPLE, renderizar um select (Dropdown List)
+        // Se o tipo for SINGLE, MULTI/MULTIPLE ou LOOKUP, renderizar um select (Dropdown List)
         const typeUpper = field.type.toUpperCase();
-        const isSingle = typeUpper.startsWith('SINGLE');
-        const isMulti = typeUpper.startsWith('MULTI') || typeUpper.startsWith('MULTIPLE');
+        const lookupName = parseLookupName(field.type);
+        const isLookup = Boolean(lookupName);
+        const isSingle = typeUpper.startsWith('SINGLE') || (isLookup && !isLookupMultiType(field.type));
+        const isMulti = typeUpper.startsWith('MULTI') || typeUpper.startsWith('MULTIPLE') || isLookupMultiType(field.type);
 
         if (isSingle || isMulti) {
             label.htmlFor = `field_${field.field}`;
@@ -872,6 +1001,10 @@ function renderForm(queryPath, moduleTitle, fields, description = '', executeMod
                 select.multiple = true;
             }
 
+            if (isLookup) {
+                select.dataset.lookupName = lookupName;
+            }
+
             // Se não for obrigatório, adicionar opção em branco (apenas para SINGLE)
             if (isSingle && !field.required) {
                 const emptyOption = document.createElement('option');
@@ -880,51 +1013,54 @@ function renderForm(queryPath, moduleTitle, fields, description = '', executeMod
                 select.appendChild(emptyOption);
             }
 
-            // Exemplo de tipo: SINGLE(S=Simples,V=Vários) ou MULTI(S=Simples,V=Vários)
-            // Extrair o conteúdo entre parênteses
-            const match = field.type.match(/\(([^)]+)\)/);
-            if (match) {
-                const optionsStr = match[1];
-                // Dividir pelas opções usando regex para suportar , ou ; ou |
-                const optionsList = optionsStr.split(/[,;|]/);
+            if (!isLookup) {
+                // Exemplo de tipo: SINGLE(S=Simples,V=Vários) ou MULTI(S=Simples,V=Vários)
+                const match = field.type.match(/\(([^)]+)\)/);
+                if (match) {
+                    const optionsStr = match[1];
+                    const optionsList = optionsStr.split(/[,;|]/);
+                    const defaultValues = field.defaultValue ? field.defaultValue.split(/[,;|]/).map(d => d.trim()) : [];
 
-                // Fatiar valores padrão se for multi-select
-                const defaultValues = field.defaultValue ? field.defaultValue.split(/[,;|]/).map(d => d.trim()) : [];
-
-                optionsList.forEach(opt => {
-                    const parts = opt.split('=');
-                    let val = '';
-                    let text = '';
-                    if (parts.length >= 2) {
-                        val = parts[0].trim();
-                        text = parts.slice(1).join('=').trim();
-                    } else {
-                        text = opt.trim();
-                        val = text;
-                        // Fallback: se o valor padrão tem tamanho 1 (ex: 'N') e o texto começa com ele (ex: 'Nenhum'), assume o valor padrão
-                        if (field.defaultValue && field.defaultValue.length === 1 && text.toUpperCase().startsWith(field.defaultValue.toUpperCase())) {
-                            val = field.defaultValue;
+                    optionsList.forEach(opt => {
+                        const parts = opt.split('=');
+                        let val = '';
+                        let text = '';
+                        if (parts.length >= 2) {
+                            val = parts[0].trim();
+                            text = parts.slice(1).join('=').trim();
+                        } else {
+                            text = opt.trim();
+                            val = text;
+                            if (field.defaultValue && field.defaultValue.length === 1 && text.toUpperCase().startsWith(field.defaultValue.toUpperCase())) {
+                                val = field.defaultValue;
+                            }
                         }
-                    }
+                        const option = document.createElement('option');
+                        option.value = val;
+                        option.text = text;
+
+                        if (isMulti) {
+                            if (defaultValues.includes(val)) {
+                                option.selected = true;
+                            }
+                        } else if (field.defaultValue && val === field.defaultValue) {
+                            option.selected = true;
+                        }
+                        select.appendChild(option);
+                    });
+                }
+            } else if (field.defaultValue) {
+                const defaultValues = field.defaultValue.split(/[,;|]/).map(d => d.trim()).filter(Boolean);
+                defaultValues.forEach(val => {
                     const option = document.createElement('option');
                     option.value = val;
-                    option.text = text;
-
-                    if (isMulti) {
-                        if (defaultValues.includes(val)) {
-                            option.selected = true;
-                        }
-                    } else {
-                        if (field.defaultValue && val === field.defaultValue) {
-                            option.selected = true;
-                        }
-                    }
+                    option.text = val;
+                    option.selected = true;
                     select.appendChild(option);
                 });
             }
 
-            // Se houver defaultValue e for SINGLE, definir no select como valor final
-            if (isSingle && field.defaultValue) {
+            if (isSingle && field.defaultValue && !isLookup) {
                 select.value = field.defaultValue;
             }
 
@@ -1088,29 +1224,7 @@ function handleExecute() {
         return;
     }
 
-    const payload = {};
-    const inputs = dynamicForm.querySelectorAll('.form-control, .form-radio');
-    
-    inputs.forEach(input => {
-        if (input.type === 'radio') {
-            if (input.checked) {
-                payload[input.name] = input.value;
-            }
-        } else if (input.tagName === 'SELECT' && input.multiple) {
-            const selectedValues = Array.from(input.selectedOptions).map(opt => opt.value);
-            if (selectedValues.length > 0 || input.required) {
-                payload[input.name] = selectedValues.join(',');
-            }
-        } else {
-            // Só enviar se tiver valor ou se for requirido
-            if (input.value !== '' || input.required) {
-                payload[input.name] = input.value;
-            }
-        }
-    });
-
-    // Validar se payload está vazio? Deixar o backend validar.
-    executeQuery(payload);
+    executeQuery(collectFormValues(false));
 }
 
 /* ==========================================================================

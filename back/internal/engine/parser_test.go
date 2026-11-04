@@ -141,9 +141,9 @@ func TestParseMetadata(t *testing.T) {
 				"--<PROPERTIES>\n" +
 				"--SELECT @?#DT_INICIAL:DATE:8:=:Data Inicial\n" +
 				"--</PROPERTIES>",
-			wantServer:      "localhost",
-			wantTimeout:     60,
-			wantFields:      1,
+			wantServer:  "localhost",
+			wantTimeout: 60,
+			wantFields:  1,
 		},
 		{
 			name: "With default value (5th colon)",
@@ -152,8 +152,8 @@ func TestParseMetadata(t *testing.T) {
 				"--SELECT @?IC_ATIVO:CHAR:1:=:Somente ativo?:N\n" +
 				"--SELECT @?NM_ARQUIVO:VARCHAR:100:=:Nome do Arquivo\n" +
 				"--</PROPERTIES>",
-			wantServer:      "localhost",
-			wantFields:      2,
+			wantServer: "localhost",
+			wantFields: 2,
 			checkField: func(t *testing.T, p *SQLParser) {
 				assert.Equal(t, "IC_ATIVO", p.Fields[0].Field)
 				assert.Equal(t, "CHAR", p.Fields[0].Type)
@@ -174,8 +174,8 @@ func TestParseMetadata(t *testing.T) {
 				"--SELECT @?IC_ATIVO:CHAR:1:=:Somente ativo?:N:Informe se deseja ou não que bla bla bla!\n" +
 				"--SELECT @?NM_ARQUIVO:VARCHAR:100:=:Nome do Arquivo\n" +
 				"--</PROPERTIES>",
-			wantServer:      "localhost",
-			wantFields:      2,
+			wantServer: "localhost",
+			wantFields: 2,
 			checkField: func(t *testing.T, p *SQLParser) {
 				assert.Equal(t, "IC_ATIVO", p.Fields[0].Field)
 				assert.Equal(t, "CHAR", p.Fields[0].Type)
@@ -197,8 +197,8 @@ func TestParseMetadata(t *testing.T) {
 				"--<PROPERTIES>\n" +
 				"--SELECT @?#IC_TIPOS:SINGLE(S=Simples,V=Vários,A=Alguns,Nenhum):VARCHAR:10:=:Tipo:N:É apenas um exemplo\n" +
 				"--</PROPERTIES>",
-			wantServer:      "localhost",
-			wantFields:      1,
+			wantServer: "localhost",
+			wantFields: 1,
 			checkField: func(t *testing.T, p *SQLParser) {
 				assert.Equal(t, "IC_TIPOS", p.Fields[0].Field)
 				assert.Equal(t, "SINGLE(S=Simples,V=Vários,A=Alguns,Nenhum)", p.Fields[0].Type)
@@ -216,8 +216,8 @@ func TestParseMetadata(t *testing.T) {
 				"--<PROPERTIES>\n" +
 				"--SELECT @?#IC_VALORES:MULTI(S=Simples,V=Vários,A=Alguns,Nenhum):VARCHAR:40:=:Valores:S,A:Apenas mais um exemplo\n" +
 				"--</PROPERTIES>",
-			wantServer:      "localhost",
-			wantFields:      1,
+			wantServer: "localhost",
+			wantFields: 1,
 			checkField: func(t *testing.T, p *SQLParser) {
 				assert.Equal(t, "IC_VALORES", p.Fields[0].Field)
 				assert.Equal(t, "MULTI(S=Simples,V=Vários,A=Alguns,Nenhum)", p.Fields[0].Type)
@@ -230,13 +230,61 @@ func TestParseMetadata(t *testing.T) {
 			},
 		},
 		{
+			name: "With LOOKUP field type",
+			sqlContent: "--SERVER=localhost\n" +
+				"--<PROPERTIES>\n" +
+				"--SELECT @?CD_USUARIO:LOOKUP(NomeDoLookUp):VARCHAR:1:=:Usuário:1:Selecione o usuário desejado\n" +
+				"--</PROPERTIES>\n" +
+				"--<LOOKUP NomeDoLookUp>\n" +
+				"SELECT CdUsuario AS Code, NmUsuario AS Value FROM COR_USUARIO WHERE CdEmpresa = 2\n" +
+				"--</LOOKUP>",
+			wantServer: "localhost",
+			wantFields: 1,
+			checkField: func(t *testing.T, p *SQLParser) {
+				assert.Equal(t, "CD_USUARIO", p.Fields[0].Field)
+				assert.Equal(t, "LOOKUP(NomeDoLookUp)", p.Fields[0].Type)
+				assert.Equal(t, "VARCHAR", p.Fields[0].DbType)
+				assert.Equal(t, 1, p.Fields[0].Size)
+				assert.Equal(t, "=", p.Fields[0].Operator)
+				assert.Equal(t, "Usuário", p.Fields[0].Label)
+				assert.Equal(t, "1", p.Fields[0].DefaultValue)
+				assert.Equal(t, "Selecione o usuário desejado", p.Fields[0].Information)
+				sql, ok := p.LookupSQL("NomeDoLookUp")
+				assert.True(t, ok)
+				assert.Contains(t, sql, "SELECT CdUsuario AS Code")
+				sqlCI, okCI := p.LookupSQL("nomedolookup")
+				assert.True(t, okCI)
+				assert.Equal(t, sql, sqlCI)
+			},
+		},
+		{
+			name: "With LOOKUP_MULTI field type",
+			sqlContent: "--SERVER=localhost\n" +
+				"--<PROPERTIES>\n" +
+				"--SELECT @?#SG_UF:LOOKUP_MULTI(UFsAtendimento):VARCHAR:80:=:Estados::Selecione as UFs\n" +
+				"--</PROPERTIES>\n" +
+				"--<LOOKUP UFsAtendimento>\n" +
+				"SELECT SgUF AS Code, NmUF AS Value FROM COR_UF\n" +
+				"--</LOOKUP>",
+			wantServer: "localhost",
+			wantFields: 1,
+			checkField: func(t *testing.T, p *SQLParser) {
+				assert.Equal(t, "SG_UF", p.Fields[0].Field)
+				assert.Equal(t, "LOOKUP_MULTI(UFsAtendimento)", p.Fields[0].Type)
+				assert.True(t, p.Fields[0].Required)
+				sql, ok := p.LookupSQL("UFsAtendimento")
+				assert.True(t, ok)
+				assert.Contains(t, sql, "FROM COR_UF")
+			},
+		},
+		{
 			name: "With MULTIPLE field type",
 			sqlContent: "--SERVER=localhost\n" +
 				"--<PROPERTIES>\n" +
 				"--SELECT @?#IC_VALORES:MULTIPLE(S=Simples,V=Vários):VARCHAR:40:=:Valores:S,V:Apenas mais um exemplo\n" +
 				"--</PROPERTIES>",
-			wantServer:      "localhost",
-			wantFields:      1,
+			wantServer: "localhost",
+			wantFields: 1,
 			checkField: func(t *testing.T, p *SQLParser) {
 				assert.Equal(t, "IC_VALORES", p.Fields[0].Field)
 				assert.Equal(t, "MULTIPLE(S=Simples,V=Vários)", p.Fields[0].Type)
@@ -412,6 +460,27 @@ func TestInjectValues(t *testing.T) {
 			},
 		},
 		{
+			name: "LOOKUP field type injection",
+			sqlContent: "-- <PROPERTIES>\n" +
+				"--SELECT @?CD_USUARIO:LOOKUP(NomeDoLookUp):VARCHAR:1:=:Usuário:1\n" +
+				"-- </PROPERTIES>\n" +
+				"--<LOOKUP NomeDoLookUp>\n" +
+				"SELECT CdUsuario AS Code FROM COR_USUARIO\n" +
+				"--</LOOKUP>\n" +
+				"SELECT * FROM tbl",
+			values: map[string]interface{}{
+				"CD_USUARIO": "42",
+			},
+			contains: []string{
+				"SELECT @CD_USUARIO='42'",
+				"SELECT * FROM tbl",
+			},
+			excludes: []string{
+				"--<LOOKUP",
+				"FROM COR_USUARIO",
+			},
+		},
+		{
 			name: "MULTI field type injection",
 			sqlContent: "-- <PROPERTIES>\n" +
 				"--SELECT @?#IC_VALORES:MULTI(S=Simples,V=Vários):VARCHAR:40:=:Valores:S,V\n" +
@@ -542,6 +611,41 @@ func TestParseRealFilesByNameSQL(t *testing.T) {
 	assert.Equal(t, "Apenas mais um exemplo", parser.Fields[3].Information)
 }
 
+func TestInjectLookupValues(t *testing.T) {
+	sqlContent := "--<PROPERTIES>\n" +
+		"--SELECT @?CD_EMPRESA:INT:8:=:Empresa:2\n" +
+		"--SELECT @?CD_USUARIO:LOOKUP(NomeDoLookUp):VARCHAR:1:=:Usuário\n" +
+		"--</PROPERTIES>\n" +
+		"SELECT 1\n" +
+		"--<LOOKUP NomeDoLookUp>\n" +
+		"SELECT CdUsuario AS Code, NmUsuario AS Value FROM COR_USUARIO WHERE CdEmpresa = @CD_EMPRESA\n" +
+		"/*[CD_EMPRESA=2]*/AND IcAtivo = 'S'/*[/CD_EMPRESA]*/\n" +
+		"--</LOOKUP>"
+
+	parser, err := ParseMetadata(sqlContent)
+	assert.NoError(t, err)
+	lookupSQL, ok := parser.LookupSQL("NomeDoLookUp")
+	assert.True(t, ok)
+
+	finalSQL := InjectLookupValues(sqlContent, lookupSQL, map[string]interface{}{
+		"CD_EMPRESA": 2,
+		"CD_USUARIO": "",
+	}, parser.Fields, "sqlserver")
+
+	assert.Contains(t, finalSQL, "SELECT @CD_EMPRESA=2")
+	assert.Contains(t, finalSQL, "FROM COR_USUARIO WHERE CdEmpresa = @CD_EMPRESA")
+	assert.Contains(t, finalSQL, "AND IcAtivo = 'S'")
+	assert.NotContains(t, finalSQL, "--<LOOKUP")
+	assert.NotContains(t, finalSQL, "SELECT 1")
+
+	pgSQL := InjectLookupValues(sqlContent, lookupSQL, map[string]interface{}{
+		"CD_EMPRESA": 9,
+	}, parser.Fields, "postgres")
+	assert.NotContains(t, pgSQL, "SELECT @CD_EMPRESA")
+	assert.Contains(t, pgSQL, "FROM COR_USUARIO")
+	assert.NotContains(t, pgSQL, "AND IcAtivo = 'S'")
+}
+
 func TestInjectValuesConditionalComments(t *testing.T) {
 	sqlContent := `SELECT 
     CD_ARQUIVO as "Id", 
@@ -569,4 +673,3 @@ FROM dbo.COR_ARQUIVO`
 	resDefault := InjectValues(sqlContent, map[string]interface{}{}, fields, "postgres")
 	assert.Contains(t, resDefault, `NR_TAMANHO_BYTES as "Size"`)
 }
-
