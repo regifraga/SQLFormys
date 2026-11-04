@@ -49,6 +49,25 @@ The frontend consists of static files. To run it locally:
 2. Configure the API URL (by default, `http://localhost:8080/api`).
 3. Open `index.html` in your browser, or use a local static server (like the VS Code Live Server extension).
 
+### Custom frontend title
+
+The default branding in the browser tab and top header is **SQLFormys**. To show a custom product or environment name next to it (for example your company or `Homologation`), set **`PRODUCT_NAME`** in the project `.env` file (see `.env.example` under the API section).
+
+```env
+PRODUCT_NAME=Acme Logistics
+```
+
+Restart the Go API after changing `.env`. When the page loads, the frontend calls `GET /api/projects`; if `productName` is returned, it updates:
+
+- The **browser tab title** to `SQLFormys (Acme Logistics)`
+- The **header logo text** to the same string
+
+If `PRODUCT_NAME` is empty or unset, the UI keeps the defaults from `front/index.html` (`SQLFormys` only).
+
+**Note:** This setting is for application branding. The title above each module form comes from the module name in the sidebar (the `.sql` filename); the subtitle path and the optional `--DESCRIPTION=` header tag control other on-screen text for that module.
+
+When running the API manually from the `back` folder, ensure the process can read your `.env` (the backend loads `.env` from the current working directory). With Docker Compose, variables from the root `.env` are passed to the API service when it is enabled.
+
 ## Writing query modules
 
 Each `.sql` file under `back/queries/<project>/` becomes a module in the UI. The filename (without `.sql`) is the module name; the parent folder is the project.
