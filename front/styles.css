@@ -468,6 +468,10 @@ body.is-resizing .main-content {
     overflow: hidden;
 }
 
+.form-card {
+    overflow: visible;
+}
+
 .card-header {
     padding: 20px 24px;
     border-bottom: 1px solid var(--border-color);
@@ -583,6 +587,195 @@ body.is-resizing .main-content {
     background-color: var(--bg-main);
     color: var(--text-muted);
     cursor: not-allowed;
+}
+
+/* Dropdown customizado: o popup nativo do Edge desalinha com overflow/sidebar fixed */
+.custom-select {
+    position: relative;
+    width: 100%;
+}
+
+.custom-select-native {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: 0;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    border: 0;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.custom-select-trigger {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 10px 12px;
+    font-size: 0.95rem;
+    font-family: inherit;
+    text-align: left;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    background-color: var(--bg-surface);
+    color: var(--text-primary);
+    cursor: pointer;
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.custom-select-trigger:hover {
+    border-color: #d1d5db;
+}
+
+.custom-select-trigger:focus,
+.custom-select.open .custom-select-trigger {
+    outline: none;
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.custom-select-trigger.invalid {
+    border-color: var(--error-color);
+}
+
+.custom-select-value {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.custom-select-value.placeholder {
+    color: var(--text-muted);
+}
+
+.custom-select-chevron {
+    flex-shrink: 0;
+    display: flex;
+    color: var(--text-secondary);
+    transition: transform 0.2s ease;
+}
+
+.custom-select.open .custom-select-chevron {
+    transform: rotate(180deg);
+}
+
+.custom-select-menu {
+    display: none;
+    margin: 0;
+    padding: 6px;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    box-shadow: var(--shadow-md);
+    overflow: hidden;
+    flex-direction: column;
+}
+
+.custom-select.open .custom-select-menu {
+    display: flex;
+}
+
+.custom-select-list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    overflow-y: auto;
+    overflow-x: hidden;
+    min-height: 0;
+}
+
+.custom-select-actions {
+    display: flex;
+    gap: 8px;
+    padding: 4px 6px 8px;
+    border-bottom: 1px solid var(--border-color);
+    margin-bottom: 4px;
+    flex-shrink: 0;
+}
+
+.custom-select-action {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--primary-color);
+    padding: 4px 6px;
+    border-radius: 4px;
+}
+
+.custom-select-action:hover {
+    background-color: rgba(59, 130, 246, 0.08);
+}
+
+.custom-select-menu [role="option"] {
+    padding: 8px 10px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.925rem;
+    color: var(--text-primary);
+    white-space: normal;
+    line-height: 1.35;
+}
+
+.custom-select.is-multiple [role="option"] {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.custom-select-check {
+    flex-shrink: 0;
+    width: 16px;
+    height: 16px;
+    border: 1.5px solid var(--border-color);
+    border-radius: 4px;
+    background-color: var(--bg-surface);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.custom-select-check::after {
+    content: "";
+    width: 9px;
+    height: 5px;
+    border-left: 2px solid #fff;
+    border-bottom: 2px solid #fff;
+    transform: rotate(-45deg) translateY(-1px);
+    opacity: 0;
+}
+
+.custom-select-menu [role="option"].selected .custom-select-check {
+    background-color: var(--primary-color);
+    border-color: var(--primary-color);
+}
+
+.custom-select-menu [role="option"].selected .custom-select-check::after {
+    opacity: 1;
+}
+
+.custom-select-option-label {
+    min-width: 0;
+}
+
+.custom-select-menu [role="option"]:hover,
+.custom-select-menu [role="option"]:focus {
+    background-color: var(--bg-main);
+    outline: none;
+}
+
+.custom-select-menu [role="option"].selected {
+    background-color: rgba(59, 130, 246, 0.1);
+    color: var(--primary-color);
+    font-weight: 500;
+}
+
+.custom-select-menu [role="option"].empty-option {
+    color: var(--text-muted);
 }
 
 .form-text {

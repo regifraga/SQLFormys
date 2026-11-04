@@ -144,6 +144,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape') {
+            closeAllCustomSelects();
             if (searchInput && searchInput.value !== '') {
                 clearSearch(false);
             }
@@ -152,6 +153,18 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
     });
+
+    document.addEventListener('mousedown', (e) => {
+        if (!e.target.closest('.custom-select')) {
+            closeAllCustomSelects();
+        }
+    });
+
+    document.addEventListener('scroll', (e) => {
+        if (e.target && e.target.closest && e.target.closest('.custom-select-menu')) return;
+        closeAllCustomSelects();
+    }, true);
+    window.addEventListener('resize', () => closeAllCustomSelects());
 
     function clearSearch(shouldFocus = false) {
         if (searchInput) {
@@ -427,6 +440,304 @@ function renderTree(nodes, container, isSearching = false) {
 }
 
 /* ==========================================================================
+   Dropdown customizado (substitui o popup nativo do <select> no Edge)
+   ========================================================================== */
+function closeCustomSelect(wrapper) {
+    if (!wrapper) return;
+    wrapper.classList.remove('open');
+    const trigger = wrapper.querySelector('.custom-select-trigger');
+    const menu = wrapper.querySelector('.custom-select-menu');
+    if (trigger) trigger.setAttribute('aria-expanded', 'false');
+    if (menu) {
+        menu.hidden = true;
+        menu.style.position = '';
+        menu.style.top = '';
+        menu.style.left = '';
+        menu.style.width = '';
+        menu.style.bottom = '';
+        menu.style.maxHeight = '';
+        menu.style.zIndex = '';
+    }
+}
+
+function closeAllCustomSelects(exceptWrapper = null) {
+    document.querySelectorAll('.custom-select.open').forEach(wrapper => {
+        if (wrapper !== exceptWrapper) {
+            closeCustomSelect(wrapper);
+        }
+    });
+}
+
+function positionCustomSelectMenu(wrapper) {
+    const trigger = wrapper.querySelector('.custom-select-trigger');
+    const menu = wrapper.querySelector('.custom-select-menu');
+    if (!trigger || !menu) return;
+
+    const rect = trigger.getBoundingClientRect();
+    const maxHeight = wrapper.classList.contains('is-multiple') ? 320 : 240;
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const spaceAbove = rect.top;
+    const openUp = spaceBelow < Math.min(maxHeight, menu.scrollHeight + 8) && spaceAbove > spaceBelow;
+
+    menu.style.position = 'fixed';
+    menu.style.left = `${Math.max(8, rect.left)}px`;
+    menu.style.width = `${rect.width}px`;
+    menu.style.maxHeight = `${maxHeight}px`;
+    menu.style.zIndex = '80';
+
+    if (openUp) {
+        menu.style.top = 'auto';
+        menu.style.bottom = `${window.innerHeight - rect.top + 4}px`;
+    } else {
+        menu.style.bottom = 'auto';
+        menu.style.top = `${rect.bottom + 4}px`;
+    }
+}
+
+function enhanceCustomSelect(select) {
+    if (!select || select.dataset.customSelect === 'true') return;
+
+    const isMultiple = Boolean(select.multiple);
+    select.dataset.customSelect = 'true';
+
+    const wrapper = document.createElement('div');
+    wrapper.className = `custom-select${isMultiple ? ' is-multiple' : ''}`;
+    select.parentNode.insertBefore(wrapper, select);
+    wrapper.appendChild(select);
+    select.classList.add('custom-select-native');
+    select.setAttribute('tabindex', '-1');
+    select.setAttribute('aria-hidden', 'true');
+
+    const trigger = document.createElement('button');
+    trigger.type = 'button';
+    trigger.className = 'custom-select-trigger';
+    trigger.id = `${select.id}_trigger`;
+    trigger.setAttribute('aria-haspopup', 'listbox');
+    trigger.setAttribute('aria-expanded', 'false');
+
+    const valueSpan = document.createElement('span');
+    valueSpan.className = 'custom-select-value';
+
+    const chevron = document.createElement('span');
+    chevron.className = 'custom-select-chevron';
+    chevron.setAttribute('aria-hidden', 'true');
+    chevron.innerHTML = `
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="6 9 12 15 18 9"></polyline>
+        </svg>
+    `;
+
+    trigger.appendChild(valueSpan);
+    trigger.appendChild(chevron);
+
+    const menu = document.createElement('div');
+    menu.className = 'custom-select-menu';
+    menu.id = `${select.id}_menu`;
+    menu.hidden = true;
+    trigger.setAttribute('aria-controls', menu.id);
+
+    if (isMultiple) {
+        const actions = document.createElement('div');
+        actions.className = 'custom-select-actions';
+
+        const btnAll = document.createElement('button');
+        btnAll.type = 'button';
+        btnAll.className = 'custom-select-action';
+        btnAll.textContent = 'Selecionar todos';
+        btnAll.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            Array.from(select.options).forEach(option => {
+                option.selected = true;
+            });
+            select.dispatchEvent(new Event('change', { bubbles: true }));
+        });
+
+        const btnNone = document.createElement('button');
+        btnNone.type = 'button';
+        btnNone.className = 'custom-select-action';
+        btnNone.textContent = 'Limpar';
+        btnNone.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            Array.from(select.options).forEach(option => {
+                option.selected = false;
+            });
+            select.dispatchEvent(new Event('change', { bubbles: true }));
+        });
+
+        actions.appendChild(btnAll);
+        actions.appendChild(btnNone);
+        menu.appendChild(actions);
+    }
+
+    const list = document.createElement('ul');
+    list.className = 'custom-select-list';
+    list.setAttribute('role', 'listbox');
+    if (isMultiple) {
+        list.setAttribute('aria-multiselectable', 'true');
+    }
+
+    function emitChange() {
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+
+    function toggleOption(option) {
+        if (isMultiple) {
+            option.selected = !option.selected;
+        } else {
+            select.value = option.value;
+        }
+        emitChange();
+        if (!isMultiple) {
+            closeCustomSelect(wrapper);
+            trigger.focus();
+        }
+    }
+
+    Array.from(select.options).forEach(option => {
+        const li = document.createElement('li');
+        li.setAttribute('role', 'option');
+        li.dataset.value = option.value;
+        li.tabIndex = -1;
+        if (!option.value) {
+            li.classList.add('empty-option');
+        }
+
+        if (isMultiple) {
+            const box = document.createElement('span');
+            box.className = 'custom-select-check';
+            box.setAttribute('aria-hidden', 'true');
+            const label = document.createElement('span');
+            label.className = 'custom-select-option-label';
+            label.textContent = option.text || option.value;
+            li.appendChild(box);
+            li.appendChild(label);
+        } else {
+            li.textContent = option.text ? option.text : '—';
+        }
+
+        li.addEventListener('click', (e) => {
+            e.preventDefault();
+            toggleOption(option);
+        });
+        list.appendChild(li);
+    });
+
+    menu.appendChild(list);
+
+    function getSelectedOptions() {
+        return Array.from(select.options).filter(option => option.selected && option.value !== '');
+    }
+
+    function syncFromSelect() {
+        const items = Array.from(list.querySelectorAll('[role="option"]'));
+        const selectedOptions = getSelectedOptions();
+
+        if (isMultiple) {
+            if (selectedOptions.length === 0) {
+                valueSpan.textContent = 'Selecione...';
+                valueSpan.classList.add('placeholder');
+            } else {
+                valueSpan.textContent = selectedOptions.map(option => option.text || option.value).join(', ');
+                valueSpan.classList.remove('placeholder');
+            }
+            items.forEach(li => {
+                const option = Array.from(select.options).find(opt => opt.value === li.dataset.value);
+                const isSelected = Boolean(option && option.selected);
+                li.setAttribute('aria-selected', isSelected ? 'true' : 'false');
+                li.classList.toggle('selected', isSelected);
+            });
+        } else {
+            const selected = select.options[select.selectedIndex];
+            const hasValue = selected && selected.value !== '';
+            if (hasValue) {
+                valueSpan.textContent = selected.text;
+            } else if (selected && selected.text) {
+                valueSpan.textContent = selected.text;
+            } else {
+                valueSpan.textContent = 'Selecione...';
+            }
+            valueSpan.classList.toggle('placeholder', !hasValue);
+            items.forEach(li => {
+                const isSelected = li.dataset.value === select.value;
+                li.setAttribute('aria-selected', isSelected ? 'true' : 'false');
+                li.classList.toggle('selected', isSelected);
+            });
+        }
+        trigger.classList.remove('invalid');
+    }
+
+    select.addEventListener('change', syncFromSelect);
+    select.addEventListener('invalid', () => {
+        trigger.classList.add('invalid');
+        trigger.focus();
+    });
+
+    function openMenu() {
+        closeAllCustomSelects(wrapper);
+        wrapper.classList.add('open');
+        trigger.setAttribute('aria-expanded', 'true');
+        menu.hidden = false;
+        positionCustomSelectMenu(wrapper);
+        const selected = list.querySelector('[aria-selected="true"]') || list.querySelector('[role="option"]');
+        if (selected) selected.focus();
+    }
+
+    trigger.addEventListener('click', (e) => {
+        e.preventDefault();
+        if (wrapper.classList.contains('open')) {
+            closeCustomSelect(wrapper);
+        } else {
+            openMenu();
+        }
+    });
+
+    trigger.addEventListener('keydown', (e) => {
+        if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            if (!wrapper.classList.contains('open')) {
+                openMenu();
+            }
+        }
+    });
+
+    menu.addEventListener('keydown', (e) => {
+        const items = Array.from(list.querySelectorAll('[role="option"]'));
+        const current = document.activeElement;
+        const idx = items.indexOf(current);
+        if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            (items[Math.min(idx + 1, items.length - 1)] || items[0]).focus();
+        } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            (items[Math.max(idx - 1, 0)] || items[0]).focus();
+        } else if (e.key === 'Home') {
+            e.preventDefault();
+            items[0]?.focus();
+        } else if (e.key === 'End') {
+            e.preventDefault();
+            items[items.length - 1]?.focus();
+        } else if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            if (current && current.getAttribute('role') === 'option') {
+                current.click();
+            }
+        } else if (e.key === 'Escape' || e.key === 'Tab') {
+            closeCustomSelect(wrapper);
+            if (e.key !== 'Tab') {
+                e.preventDefault();
+                trigger.focus();
+            }
+        }
+    });
+
+    wrapper.appendChild(trigger);
+    wrapper.appendChild(menu);
+    syncFromSelect();
+}
+
+/* ==========================================================================
    Renderização do Formulário Dinâmico
    ========================================================================== */
 function renderForm(queryPath, moduleTitle, fields, description = '', executeMode = '', server = '', timeout = 60) {
@@ -577,10 +888,6 @@ function renderForm(queryPath, moduleTitle, fields, description = '', executeMod
                 // Dividir pelas opções usando regex para suportar , ou ; ou |
                 const optionsList = optionsStr.split(/[,;|]/);
 
-                if (isMulti) {
-                    select.size = Math.min(5, optionsList.length);
-                }
-
                 // Fatiar valores padrão se for multi-select
                 const defaultValues = field.defaultValue ? field.defaultValue.split(/[,;|]/).map(d => d.trim()) : [];
 
@@ -624,6 +931,7 @@ function renderForm(queryPath, moduleTitle, fields, description = '', executeMod
             group.appendChild(label);
             group.appendChild(select);
             dynamicForm.appendChild(group);
+            enhanceCustomSelect(select);
             return;
         }
 
@@ -764,8 +1072,10 @@ function handleClear() {
                     Array.from(input.options).forEach(option => {
                         option.selected = defaultValues.includes(option.value);
                     });
+                    input.dispatchEvent(new Event('change', { bubbles: true }));
                 } else {
                     input.value = field.defaultValue || '';
+                    input.dispatchEvent(new Event('change', { bubbles: true }));
                 }
             }
         }
