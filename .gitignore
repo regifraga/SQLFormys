@@ -38,6 +38,7 @@ go.work.sum
 # Editor/IDE
 # .idea/
 # .vscode/
+.cursor/
 
 # SQLite database files
 *.db
