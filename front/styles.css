@@ -1330,3 +1330,70 @@ body.is-resizing .main-content {
     color: var(--primary-color);
     transform: scale(1.15);
 }
+
+.field-info-icon:focus-visible {
+    outline: 2px solid var(--primary-color);
+    outline-offset: 2px;
+    border-radius: 4px;
+}
+
+/* Tooltip customizado (substitui o title nativo do navegador) */
+.app-tooltip {
+    position: fixed;
+    z-index: 10050;
+    max-width: min(320px, calc(100vw - 24px));
+    padding: 8px 12px;
+    font-size: 0.8125rem;
+    line-height: 1.5;
+    font-weight: 500;
+    color: var(--text-light);
+    text-align: left;
+    background: #111827;
+    border-radius: 8px;
+    box-shadow: var(--shadow-md), 0 10px 25px rgba(15, 23, 42, 0.18);
+    pointer-events: none;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.16s ease, transform 0.16s ease, visibility 0.16s ease;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+}
+
+.app-tooltip.is-visible {
+    opacity: 1;
+    visibility: visible;
+}
+
+.app-tooltip--top {
+    transform: translate(-50%, 4px);
+}
+
+.app-tooltip--top.is-visible {
+    transform: translate(-50%, 0);
+}
+
+.app-tooltip--bottom {
+    transform: translate(-50%, -4px);
+}
+
+.app-tooltip--bottom.is-visible {
+    transform: translate(-50%, 0);
+}
+
+.app-tooltip::after {
+    content: '';
+    position: absolute;
+    left: var(--tooltip-arrow-x, 50%);
+    transform: translateX(-50%);
+    border: 6px solid transparent;
+}
+
+.app-tooltip--top::after {
+    top: 100%;
+    border-top-color: #111827;
+}
+
+.app-tooltip--bottom::after {
+    bottom: 100%;
+    border-bottom-color: #111827;
+}

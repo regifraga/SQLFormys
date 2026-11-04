@@ -338,6 +338,22 @@ func TestInjectValues(t *testing.T) {
 		excludes   []string
 	}{
 		{
+			name: "DATE field normalizes ISO input to YYYYMMDD",
+			sqlContent: "--<PROPERTIES>\n" +
+				"--SELECT @?#DT_INICIAL:DATE:8:=:Data Inicial\n" +
+				"--SELECT @?#DT_FINAL:DATE:8:=:Data Final\n" +
+				"--</PROPERTIES>\n" +
+				"SELECT 1",
+			values: map[string]interface{}{
+				"DT_INICIAL": "2025-11-04",
+				"DT_FINAL":   "20251130",
+			},
+			contains: []string{
+				"SELECT @DT_INICIAL='20251104'",
+				"SELECT @DT_FINAL='20251130'",
+			},
+		},
+		{
 			name: "Regular values with SQL escaping",
 			values: map[string]interface{}{
 				"ID":   123,
@@ -612,7 +628,8 @@ func TestParseRealFilesByNameSQL(t *testing.T) {
 }
 
 func TestInjectLookupValues(t *testing.T) {
-	sqlContent := "--<PROPERTIES>\n" +
+	sqlContent := "DECLARE @CD_EMPRESA INT, @CD_USUARIO VARCHAR(10)\n" +
+		"--<PROPERTIES>\n" +
 		"--SELECT @?CD_EMPRESA:INT:8:=:Empresa:2\n" +
 		"--SELECT @?CD_USUARIO:LOOKUP(NomeDoLookUp):VARCHAR:1:=:Usuário\n" +
 		"--</PROPERTIES>\n" +
@@ -627,23 +644,42 @@ func TestInjectLookupValues(t *testing.T) {
 	lookupSQL, ok := parser.LookupSQL("NomeDoLookUp")
 	assert.True(t, ok)
 
-	finalSQL := InjectLookupValues(sqlContent, lookupSQL, map[string]interface{}{
+	finalSQL := InjectLookupValues(sqlContent, lookupSQL, "CD_USUARIO", map[string]interface{}{
 		"CD_EMPRESA": 2,
 		"CD_USUARIO": "",
 	}, parser.Fields, "sqlserver")
 
+	assert.Contains(t, finalSQL, "DECLARE @CD_EMPRESA INT")
 	assert.Contains(t, finalSQL, "SELECT @CD_EMPRESA=2")
+	assert.NotContains(t, finalSQL, "SELECT @CD_USUARIO")
 	assert.Contains(t, finalSQL, "FROM COR_USUARIO WHERE CdEmpresa = @CD_EMPRESA")
 	assert.Contains(t, finalSQL, "AND IcAtivo = 'S'")
 	assert.NotContains(t, finalSQL, "--<LOOKUP")
 	assert.NotContains(t, finalSQL, "SELECT 1")
 
-	pgSQL := InjectLookupValues(sqlContent, lookupSQL, map[string]interface{}{
+	pgSQL := InjectLookupValues(sqlContent, lookupSQL, "CD_USUARIO", map[string]interface{}{
 		"CD_EMPRESA": 9,
 	}, parser.Fields, "postgres")
 	assert.NotContains(t, pgSQL, "SELECT @CD_EMPRESA")
+	assert.NotContains(t, pgSQL, "DECLARE")
 	assert.Contains(t, pgSQL, "FROM COR_USUARIO")
 	assert.NotContains(t, pgSQL, "AND IcAtivo = 'S'")
+}
+
+func TestExtractSqlServerDeclareBlock(t *testing.T) {
+	sql := "--SERVER=10.0.0.1\n" +
+		"DECLARE @CD_EMPRESA INT,\n" +
+		"        @IC_TESTE CHAR(1) = 'N'\n" +
+		"--<PROPERTIES>\n" +
+		"--SELECT @?CD_EMPRESA:INT:8:=:Empresa\n" +
+		"--</PROPERTIES>\n" +
+		"SELECT 1"
+	block := extractSqlServerDeclareBlock(sql)
+	assert.Contains(t, block, "DECLARE @CD_EMPRESA INT")
+	assert.Contains(t, block, "@IC_TESTE CHAR(1) = 'N'")
+	assert.NotContains(t, block, "PROPERTIES")
+
+	assert.Equal(t, "", extractSqlServerDeclareBlock("--<PROPERTIES>\n--SELECT @?X:INT:1:=:X\n--</PROPERTIES>\nSELECT 1"))
 }
 
 func TestInjectValuesConditionalComments(t *testing.T) {

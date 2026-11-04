@@ -141,7 +141,7 @@ func (s *queryService) ExecuteLookup(ctx context.Context, basePath, queryPath, l
 		return domain.LookupResult{}, "", err
 	}
 
-	finalSQL := engine.InjectLookupValues(string(content), lookupSQL, payload, parser.Fields, defaultDriver)
+	finalSQL := engine.InjectLookupValues(string(content), lookupSQL, lookupField, payload, parser.Fields, defaultDriver)
 	result, sql, err := s.runPreparedSQL(ctx, parser, finalSQL, payload, defaultDriver, defaultDsn)
 	if err != nil {
 		return domain.LookupResult{}, sql, err

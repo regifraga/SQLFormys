@@ -44,6 +44,8 @@ let currentQueryLookups = {};
    Inicialização
    ========================================================================== */
 document.addEventListener('DOMContentLoaded', () => {
+    initAppTooltips();
+
     // Carregar menu de projetos
     loadProjects();
 
@@ -413,7 +415,7 @@ function renderTree(nodes, container, isSearching = false) {
                         </svg>
                         <span class="tree-title">${node.name}</span>
                     </div>
-                    <button class="favorite-btn ${isFav ? 'is-favorite' : ''}" title="${isFav ? 'Remover dos favoritos' : 'Adicionar aos favoritos'}">
+                    <button class="favorite-btn ${isFav ? 'is-favorite' : ''}" data-tooltip="${isFav ? 'Remover dos favoritos' : 'Adicionar aos favoritos'}">
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="${isFav ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                             <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
                         </svg>
@@ -519,8 +521,28 @@ function isLookupMultiType(type) {
     return /^(LOOKUP_MULTI|MULTILOOKUP)\(/i.test(type || '');
 }
 
+function formatDateFieldValue(field, value) {
+    if (!value || !field) return value;
+    const typeUpper = String(field.type || '').toUpperCase();
+    if (typeUpper !== 'DATE' && typeUpper !== 'DATETIME' && typeUpper !== 'TIMESTAMP') {
+        return value;
+    }
+    if (/^\d{8}$/.test(value)) {
+        return value;
+    }
+    if (field.size && field.size !== 8) {
+        return value;
+    }
+    const isoMatch = String(value).match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (isoMatch) {
+        return `${isoMatch[1]}${isoMatch[2]}${isoMatch[3]}`;
+    }
+    return value;
+}
+
 function collectFormValues(includeEmpty = false) {
     const payload = {};
+    const fieldByName = Object.fromEntries(currentFields.map(f => [f.field, f]));
     const inputs = dynamicForm.querySelectorAll('.form-control, .form-radio');
 
     inputs.forEach(input => {
@@ -538,7 +560,10 @@ function collectFormValues(includeEmpty = false) {
             return;
         }
         if (input.value !== '' || input.required || includeEmpty) {
-            payload[input.name] = input.value;
+            const meta = fieldByName[input.name];
+            payload[input.name] = (input.type === 'date' && meta)
+                ? formatDateFieldValue(meta, input.value)
+                : input.value;
         }
     });
 
@@ -1140,7 +1165,10 @@ function renderForm(queryPath, moduleTitle, fields, description = '', executeMod
         if (field.information) {
             const infoSpan = document.createElement('span');
             infoSpan.className = 'field-info-icon';
-            infoSpan.title = field.information;
+            infoSpan.setAttribute('data-tooltip', field.information);
+            infoSpan.setAttribute('tabindex', '0');
+            infoSpan.setAttribute('role', 'img');
+            infoSpan.setAttribute('aria-label', 'Informações do campo');
             infoSpan.innerHTML = `
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                     <circle cx="12" cy="12" r="10"></circle>
@@ -1623,7 +1651,7 @@ function renderGridTableHead(columns) {
         btn.className = 'grid-sort-btn';
         btn.dataset.column = column;
         btn.setAttribute('aria-sort', 'none');
-        btn.title = `Ordenar por ${column}`;
+        btn.setAttribute('data-tooltip', `Ordenar por ${column}`);
 
         const label = document.createElement('span');
         label.className = 'grid-sort-label';
@@ -1771,6 +1799,164 @@ function filterGrid() {
     }
 
     refreshGridTable();
+}
+
+/* ==========================================================================
+   Tooltip customizado
+   ========================================================================== */
+let appTooltipEl = null;
+let appTooltipTrigger = null;
+let appTooltipShowTimer = null;
+let appTooltipPlacement = 'top';
+
+function getAppTooltipElement() {
+    if (!appTooltipEl) {
+        appTooltipEl = document.createElement('div');
+        appTooltipEl.id = 'app-tooltip';
+        appTooltipEl.className = 'app-tooltip app-tooltip--top';
+        appTooltipEl.setAttribute('role', 'tooltip');
+        document.body.appendChild(appTooltipEl);
+    }
+    return appTooltipEl;
+}
+
+function positionAppTooltip(trigger) {
+    const tooltip = getAppTooltipElement();
+    const rect = trigger.getBoundingClientRect();
+    const margin = 10;
+    const gap = 8;
+
+    const layoutTooltip = (placement) => {
+        tooltip.classList.remove('app-tooltip--top', 'app-tooltip--bottom');
+        tooltip.classList.add(`app-tooltip--${placement}`);
+
+        tooltip.style.left = '0px';
+        tooltip.style.top = '0px';
+        tooltip.style.visibility = 'hidden';
+        tooltip.classList.add('is-visible');
+
+        const tipRect = tooltip.getBoundingClientRect();
+        const top = placement === 'top'
+            ? rect.top - tipRect.height - gap
+            : rect.bottom + gap;
+
+        let left = rect.left + rect.width / 2;
+        const half = tipRect.width / 2;
+        if (left - half < margin) {
+            left = margin + half;
+        } else if (left + half > window.innerWidth - margin) {
+            left = window.innerWidth - margin - half;
+        }
+
+        const arrowX = Math.min(
+            Math.max(rect.left + rect.width / 2 - (left - half), 12),
+            tipRect.width - 12
+        );
+
+        tooltip.style.setProperty('--tooltip-arrow-x', `${arrowX}px`);
+        tooltip.style.left = `${left}px`;
+        tooltip.style.top = `${Math.max(margin, top)}px`;
+        tooltip.style.visibility = '';
+
+        return { tipRect, top, placement };
+    };
+
+    let placement = appTooltipPlacement || 'top';
+    let layout = layoutTooltip(placement);
+
+    if (placement === 'top' && layout.top < margin) {
+        placement = 'bottom';
+        appTooltipPlacement = 'bottom';
+        layout = layoutTooltip(placement);
+    } else if (
+        placement === 'bottom'
+        && layout.top + layout.tipRect.height > window.innerHeight - margin
+    ) {
+        placement = 'top';
+        appTooltipPlacement = 'top';
+        layoutTooltip(placement);
+    } else {
+        appTooltipPlacement = placement;
+    }
+}
+
+function hideAppTooltip() {
+    clearTimeout(appTooltipShowTimer);
+    appTooltipShowTimer = null;
+    appTooltipTrigger = null;
+    appTooltipPlacement = 'top';
+
+    if (appTooltipEl) {
+        appTooltipEl.classList.remove('is-visible');
+        appTooltipEl.textContent = '';
+    }
+}
+
+function showAppTooltip(trigger) {
+    const text = trigger.getAttribute('data-tooltip');
+    if (!text) return;
+
+    appTooltipTrigger = trigger;
+    appTooltipPlacement = 'top';
+
+    const tooltip = getAppTooltipElement();
+    tooltip.textContent = text;
+    positionAppTooltip(trigger);
+}
+
+function scheduleAppTooltip(trigger) {
+    if (appTooltipTrigger === trigger) return;
+
+    clearTimeout(appTooltipShowTimer);
+    hideAppTooltip();
+
+    appTooltipShowTimer = setTimeout(() => {
+        showAppTooltip(trigger);
+    }, 350);
+}
+
+function initAppTooltips() {
+    getAppTooltipElement();
+
+    document.body.addEventListener('mouseover', (e) => {
+        const trigger = e.target.closest('[data-tooltip]');
+        if (trigger) {
+            scheduleAppTooltip(trigger);
+        }
+    });
+
+    document.body.addEventListener('mouseout', (e) => {
+        const trigger = e.target.closest('[data-tooltip]');
+        if (trigger && !trigger.contains(e.relatedTarget)) {
+            hideAppTooltip();
+        }
+    });
+
+    document.body.addEventListener('focusin', (e) => {
+        const trigger = e.target.closest('[data-tooltip]');
+        if (trigger) {
+            showAppTooltip(trigger);
+        }
+    });
+
+    document.body.addEventListener('focusout', (e) => {
+        const trigger = e.target.closest('[data-tooltip]');
+        if (trigger && !trigger.contains(e.relatedTarget)) {
+            hideAppTooltip();
+        }
+    });
+
+    window.addEventListener('scroll', () => {
+        if (appTooltipTrigger) {
+            positionAppTooltip(appTooltipTrigger);
+        }
+    }, true);
+
+    window.addEventListener('resize', () => {
+        if (appTooltipTrigger) {
+            positionAppTooltip(appTooltipTrigger);
+        }
+    });
 }
 
 /* ==========================================================================
@@ -2071,9 +2257,9 @@ function renderFavorites() {
                         <line x1="16" y1="13" x2="8" y2="13"></line>
                         <line x1="16" y1="17" x2="8" y2="17"></line>
                     </svg>
-                    <span class="favorite-item-title" title="${moduleNode.name}">${moduleNode.name}</span>
+                    <span class="favorite-item-title" data-tooltip="${moduleNode.name}">${moduleNode.name}</span>
                 </div>
-                <button class="favorite-remove-btn" title="Remover dos favoritos">
+                <button class="favorite-remove-btn" data-tooltip="Remover dos favoritos">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                         <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
                     </svg>
@@ -2088,7 +2274,7 @@ function renderFavorites() {
         } else {
             // Favorito indisponível
             itemEl.className = 'favorite-item unavailable';
-            itemEl.title = `Este módulo não está mais disponível no caminho: ${path}`;
+            itemEl.setAttribute('data-tooltip', `Este módulo não está mais disponível no caminho: ${path}`);
             
             const displayName = path.split('/').pop() || path;
             
@@ -2099,9 +2285,9 @@ function renderFavorites() {
                         <line x1="12" y1="9" x2="12" y2="13"></line>
                         <line x1="12" y1="17" x2="12.01" y2="17"></line>
                     </svg>
-                    <span class="favorite-item-title" title="${path}">${displayName} (Indisponível)</span>
+                    <span class="favorite-item-title" data-tooltip="${path}">${displayName} (Indisponível)</span>
                 </div>
-                <button class="favorite-remove-btn" title="Remover dos favoritos">
+                <button class="favorite-remove-btn" data-tooltip="Remover dos favoritos">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                         <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
                     </svg>

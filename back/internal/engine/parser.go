@@ -40,6 +40,10 @@ var (
 	lookupBlockRegex = regexp.MustCompile(`(?si)--\s*<LOOKUP\s+([A-Za-z][A-Za-z0-9_]*)\s*>\s*(.*?)\s*--\s*</LOOKUP>`)
 
 	fieldNameRegex = regexp.MustCompile(`[@?#]+([A-Za-z0-9_.]+)`)
+
+	declareStartRegex    = regexp.MustCompile(`(?i)\bDECLARE\b`)
+	propertiesStartRegex = regexp.MustCompile(`(?m)^\s*--\s*<PROPERTIES>`)
+	mainSQLStartRegex    = regexp.MustCompile(`(?m)^\s*(SELECT|INSERT|UPDATE|DELETE|EXEC|WITH)\b`)
 )
 
 func isChoiceFieldLine(line string) bool {
@@ -56,6 +60,27 @@ func isChoiceFieldLine(line string) bool {
 // never executed as part of the main module query.
 func StripLookupBlocks(sqlContent string) string {
 	return lookupBlockRegex.ReplaceAllString(sqlContent, "")
+}
+
+// extractSqlServerDeclareBlock returns the DECLARE section at the top of a script (before --<PROPERTIES>).
+func extractSqlServerDeclareBlock(fileContent string) string {
+	content := StripLookupBlocks(fileContent)
+	loc := declareStartRegex.FindStringIndex(content)
+	if loc == nil {
+		return ""
+	}
+	rest := content[loc[0]:]
+	end := len(rest)
+	if propLoc := propertiesStartRegex.FindStringIndex(rest); propLoc != nil {
+		end = propLoc[0]
+	} else if sqlLoc := mainSQLStartRegex.FindStringIndex(rest); sqlLoc != nil && sqlLoc[0] > 0 {
+		end = sqlLoc[0]
+	}
+	block := strings.TrimSpace(rest[:end])
+	if block == "" {
+		return ""
+	}
+	return block
 }
 
 // LookupSQL returns the inner SQL of a named lookup block (case-insensitive).
@@ -276,6 +301,33 @@ func isPostgresDriver(driver string) bool {
 	return driver == "postgres" || driver == "pgx"
 }
 
+var (
+	isoDatePrefixRegex = regexp.MustCompile(`^(\d{4})-(\d{2})-(\d{2})`)
+	compactDateRegex   = regexp.MustCompile(`^\d{8}$`)
+)
+
+// normalizeDateFieldValue converts HTML date input (YYYY-MM-DD) to YYYYMMDD when the
+// field is DATE/DATETIME/TIMESTAMP with size 8, matching SQL Server style 112 usage in scripts.
+func normalizeDateFieldValue(valStr string, field domain.Field) string {
+	if valStr == "" {
+		return valStr
+	}
+	typeUpper := strings.ToUpper(strings.TrimSpace(field.Type))
+	if typeUpper != "DATE" && typeUpper != "DATETIME" && typeUpper != "TIMESTAMP" {
+		return valStr
+	}
+	if compactDateRegex.MatchString(valStr) {
+		return valStr
+	}
+	if field.Size != 0 && field.Size != 8 {
+		return valStr
+	}
+	if parts := isoDatePrefixRegex.FindStringSubmatch(valStr); len(parts) == 4 {
+		return parts[1] + parts[2] + parts[3]
+	}
+	return valStr
+}
+
 // InjectValues takes the original SQL and user values, replaces the PROPERTIES block with SELECT injections (or SET statements for Postgres)
 func InjectValues(sqlContent string, values map[string]interface{}, fields []domain.Field, driver string) string {
 	sqlContent = StripLookupBlocks(sqlContent)
@@ -287,7 +339,7 @@ func InjectValues(sqlContent string, values map[string]interface{}, fields []dom
 		return propertiesRegex.ReplaceAllString(sqlContent, "")
 	}
 
-	injectionBlock := buildInjectionBlock(sqlContent, values, fields)
+	injectionBlock := buildInjectionBlock(sqlContent, values, fields, "")
 	if injectionBlock == "" && propertiesRegex.FindStringSubmatch(sqlContent) == nil {
 		return sqlContent
 	}
@@ -295,20 +347,28 @@ func InjectValues(sqlContent string, values map[string]interface{}, fields []dom
 }
 
 // InjectLookupValues prepares a named lookup query with the same form variables as the main module.
-func InjectLookupValues(fileContent, lookupSQL string, values map[string]interface{}, fields []domain.Field, driver string) string {
+func InjectLookupValues(fileContent, lookupSQL, lookupField string, values map[string]interface{}, fields []domain.Field, driver string) string {
 	lookupSQL = applyConditionalComments(lookupSQL, values, fields)
 	if isPostgresDriver(driver) {
 		return lookupSQL
 	}
 
-	injections := buildInjectionBlock(StripLookupBlocks(fileContent), values, fields)
-	if injections == "" {
-		return lookupSQL
+	stripped := StripLookupBlocks(fileContent)
+	declareBlock := extractSqlServerDeclareBlock(fileContent)
+	injections := buildInjectionBlock(stripped, values, fields, lookupField)
+
+	var parts []string
+	if declareBlock != "" {
+		parts = append(parts, declareBlock)
 	}
-	return injections + "\n" + lookupSQL
+	if injections != "" {
+		parts = append(parts, injections)
+	}
+	parts = append(parts, lookupSQL)
+	return strings.Join(parts, "\n")
 }
 
-func buildInjectionBlock(sqlContent string, values map[string]interface{}, fields []domain.Field) string {
+func buildInjectionBlock(sqlContent string, values map[string]interface{}, fields []domain.Field, skipField string) string {
 	propMatch := propertiesRegex.FindStringSubmatch(sqlContent)
 	if len(propMatch) == 0 {
 		return ""
@@ -374,12 +434,16 @@ func buildInjectionBlock(sqlContent string, values map[string]interface{}, field
 	var injections []string
 
 	for _, field := range fields {
+		if skipField != "" && strings.EqualFold(field.Field, skipField) {
+			continue
+		}
 		val, exists := values[field.Field]
 		if !exists || val == nil {
 			val = ""
 		}
 
 		valStr := fmt.Sprintf("%v", val)
+		valStr = normalizeDateFieldValue(valStr, field)
 
 		// Get the clean prefix for this field
 		cleanPrefix, hasPrefix := fieldPrefixes[field.Field]
