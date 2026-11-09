@@ -17,7 +17,7 @@ import (
 // NewMiddleware applies optional network authentication on /api/* routes.
 func NewMiddleware(cfg *config.Config, next http.Handler) http.Handler {
 	if !cfg.AuthEnabled {
-		return next
+		return proxyIdentityForAccessLog(next)
 	}
 
 	protected := buildProtectedHandler(cfg, next)
@@ -25,9 +25,20 @@ func NewMiddleware(cfg *config.Config, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodOptions || !strings.HasPrefix(r.URL.Path, "/api/") {
 			next.ServeHTTP(w, r)
-		 return
+			return
 		}
 		protected.ServeHTTP(w, r)
+	})
+}
+
+// proxyIdentityForAccessLog não exige autenticação na API; apenas repassa o usuário
+// do gateway (ex. Nginx Basic Auth via X-Remote-User) para o access log.
+func proxyIdentityForAccessLog(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if id, ok := IdentityFromProxyHeaders(r); ok {
+			logging.SetRequestUser(r, id.Username)
+		}
+		next.ServeHTTP(w, r)
 	})
 }
 
