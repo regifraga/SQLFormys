@@ -3,6 +3,7 @@ package config
 import (
 	"log"
 	"os"
+	"strconv"
 	"strings"
 )
 
@@ -14,7 +15,19 @@ type Config struct {
 	DBDsn           string
 	QueriesBasePath string
 	ProductName     string
-	// Adicionar configurações de JWT aqui futuramente
+	AuthEnabled     bool
+	AuthDevUser     string
+	AuthKrbKeytab   string
+	AuthKrbSPN      string
+
+	LogEnabled              bool
+	LogDir                  string
+	LogFile                 string
+	LogRotation             string
+	LogMaxSizeBytes         int64
+	LogMaxFiles             int
+	LogToStdout             bool
+	LogRequestBodyMaxBytes  int
 }
 
 // Load carrega as variáveis de ambiente obrigatórias.
@@ -53,6 +66,47 @@ func Load() *Config {
 
 	productName := os.Getenv("PRODUCT_NAME")
 
+	authEnabled := parseBoolEnv(os.Getenv("AUTH_ENABLED"), false)
+	authDevUser := os.Getenv("AUTH_DEV_USER")
+	authKrbKeytab := os.Getenv("AUTH_KRB_KEYTAB")
+	authKrbSPN := os.Getenv("AUTH_KRB_SPN")
+
+	logEnabled := parseBoolEnv(os.Getenv("LOG_ENABLED"), true)
+	logDir := os.Getenv("LOG_DIR")
+	if logDir == "" {
+		logDir = "logs"
+	}
+	logFile := os.Getenv("LOG_FILE")
+	if logFile == "" {
+		logFile = "api.log"
+	}
+	logRotation := strings.ToLower(strings.TrimSpace(os.Getenv("LOG_ROTATION")))
+	if logRotation == "" {
+		logRotation = "size"
+	}
+	logMaxSizeMB := parseIntEnv(os.Getenv("LOG_MAX_SIZE_MB"), 10)
+	if logMaxSizeMB < 1 {
+		logMaxSizeMB = 10
+	}
+	logMaxFiles := parseIntEnv(os.Getenv("LOG_MAX_FILES"), 10)
+	if logMaxFiles < 1 {
+		logMaxFiles = 10
+	}
+	logToStdout := parseBoolEnv(os.Getenv("LOG_TO_STDOUT"), env == "development")
+	logBodyMax := parseIntEnv(os.Getenv("LOG_REQUEST_BODY_MAX_BYTES"), 4096)
+	if logBodyMax < 0 {
+		logBodyMax = 0
+	}
+
+	if authEnabled && authDevUser == "" && (authKrbKeytab == "" || authKrbSPN == "") {
+		if env == "development" {
+			log.Fatal("ERRO: AUTH_ENABLED=true em development exige AUTH_DEV_USER " +
+				"ou AUTH_KRB_KEYTAB e AUTH_KRB_SPN.")
+		}
+		log.Fatal("ERRO: AUTH_ENABLED=true exige AUTH_KRB_KEYTAB e AUTH_KRB_SPN " +
+			"(ou AUTH_DEV_USER com APP_ENV=development).")
+	}
+
 	return &Config{
 		Environment:     env,
 		Port:            port,
@@ -60,6 +114,46 @@ func Load() *Config {
 		DBDsn:           dbDsn,
 		QueriesBasePath: queriesBasePath,
 		ProductName:     productName,
+		AuthEnabled:     authEnabled,
+		AuthDevUser:     authDevUser,
+		AuthKrbKeytab:   authKrbKeytab,
+		AuthKrbSPN:      authKrbSPN,
+
+		LogEnabled:             logEnabled,
+		LogDir:                 logDir,
+		LogFile:                logFile,
+		LogRotation:            logRotation,
+		LogMaxSizeBytes:        int64(logMaxSizeMB) * 1024 * 1024,
+		LogMaxFiles:            logMaxFiles,
+		LogToStdout:            logToStdout,
+		LogRequestBodyMaxBytes: logBodyMax,
+	}
+}
+
+func parseIntEnv(raw string, defaultVal int) int {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return defaultVal
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil {
+		return defaultVal
+	}
+	return n
+}
+
+func parseBoolEnv(raw string, defaultVal bool) bool {
+	if raw == "" {
+		return defaultVal
+	}
+	token := strings.ToLower(strings.TrimSpace(raw))
+	switch token {
+	case "true", "s", "1", "sim", "yes", "y":
+		return true
+	case "false", "n", "0", "nao", "não", "no":
+		return false
+	default:
+		return defaultVal
 	}
 }
 

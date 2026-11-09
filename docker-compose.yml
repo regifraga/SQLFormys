@@ -41,44 +41,65 @@ services:
   #---------------------------------------------------------
   # Backend API (Go)
   #---------------------------------------------------------
-  # api:
-  #   build:
-  #     context: ./back
-  #     dockerfile: Dockerfile
-  #   container_name: sqlformys-api
-  #   restart: unless-stopped
-  #   env_file:
-  #     - .env
-  #   ports:
-  #     - "8080:8080"
-  #   depends_on:
-  #     - db
-  #   environment:
-  #     - PORT=${PORT}
-  #     - DB_DRIVER=${DB_DRIVER}
-  #     # String de conexão lida do .env (usando o alias 'db' do compose)
-  #     - DB_DSN=${DB_DSN}
-  #     - QUERIES_BASE_PATH=${QUERIES_BASE_PATH}
-  #   volumes:
-  #     - ./back/queries:/app/queries
+  api:
+    build:
+      context: ./back
+      dockerfile: Dockerfile
+    container_name: sqlformys-api
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "8080:8080"
+    depends_on:
+      - db
+    environment:
+      - PORT=${PORT}
+      - DB_DRIVER=${DB_DRIVER}
+      # String de conexão lida do .env (usando o alias 'db' do compose)
+      - DB_DSN=${DB_DSN}
+      - QUERIES_BASE_PATH=${QUERIES_BASE_PATH}
+      - PRODUCT_NAME=${PRODUCT_NAME:-}
+      - AUTH_ENABLED=${AUTH_ENABLED:-false}
+      - AUTH_DEV_USER=${AUTH_DEV_USER:-}
+      - AUTH_KRB_KEYTAB=${AUTH_KRB_KEYTAB:-}
+      - AUTH_KRB_SPN=${AUTH_KRB_SPN:-}
+      - LOG_ENABLED=${LOG_ENABLED:-true}
+      - LOG_DIR=${LOG_DIR:-logs}
+      - LOG_FILE=${LOG_FILE:-api.log}
+      - LOG_ROTATION=${LOG_ROTATION:-size}
+      - LOG_MAX_SIZE_MB=${LOG_MAX_SIZE_MB:-10}
+      - LOG_MAX_FILES=${LOG_MAX_FILES:-10}
+      - LOG_TO_STDOUT=${LOG_TO_STDOUT:-true}
+      - LOG_REQUEST_BODY_MAX_BYTES=${LOG_REQUEST_BODY_MAX_BYTES:-4096}
+    volumes:
+      - ./back/queries:/app/queries
+      - ${LOG_HOST_PATH:-./logs}:/app/logs
 
   #---------------------------------------------------------
   # Frontend Web (NGINX)
   #---------------------------------------------------------
-  # front:
-  #   build:
-  #     context: ./front
-  #     dockerfile: Dockerfile
-  #   container_name: sqlformys-front
-  #   restart: unless-stopped
-  #   env_file:
-  #     - .env
-  #   environment:
-  #     - API_BASE_URL=${API_BASE_URL:-http://localhost:8080/api}
-  #   ports:
-  #     - "3000:80"
-  #   # depends_on:
-  #   #   - api
+  front:
+    build:
+      context: ./front
+      dockerfile: Dockerfile
+    container_name: sqlformys-front
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      # Com AUTH_ENABLED=true use API_BASE_URL=/api (mesmo origin via proxy abaixo)
+      - API_BASE_URL=${API_BASE_URL:-/api}
+      - AUTH_ENABLED=${AUTH_ENABLED:-false}
+      - NGINX_BASIC_AUTH_ENABLED=${NGINX_BASIC_AUTH_ENABLED:-false}
+      - NGINX_BASIC_AUTH_REALM=${NGINX_BASIC_AUTH_REALM:-SQLFormys}
+      - NGINX_BASIC_AUTH_HTPASSWD_FILE=${NGINX_BASIC_AUTH_HTPASSWD_FILE:-/etc/nginx/secrets/htpasswd}
+    volumes:
+      - ${NGINX_BASIC_AUTH_HTPASSWD_HOST_PATH:-./front/secrets/htpasswd}:${NGINX_BASIC_AUTH_HTPASSWD_FILE:-/etc/nginx/secrets/htpasswd}:ro
+    ports:
+      - "3000:80"
+    depends_on:
+      - api
 
 volumes:
   sqldata:

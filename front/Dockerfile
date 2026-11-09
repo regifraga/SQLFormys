@@ -4,10 +4,11 @@ FROM nginx:alpine
 
 # Copia os arquivos estáticos da nossa aplicação para o diretório padrão do NGINX
 COPY . /usr/share/nginx/html
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+COPY docker-entrypoint.sh /docker-entrypoint.sh
+RUN chmod +x /docker-entrypoint.sh
 
 # Expõe a porta 80 (padrão HTTP)
 EXPOSE 80
 
-# Substitui as variáveis de ambiente no config.js.template e gera o config.js na inicialização do container,
-# permitindo que o NGINX sirva o arquivo com as variáveis injetadas dinamicamente em tempo de execução.
-CMD ["/bin/sh", "-c", "envsubst < /usr/share/nginx/html/config.js.template > /usr/share/nginx/html/config.js && nginx -g 'daemon off;'"]
+ENTRYPOINT ["/docker-entrypoint.sh"]

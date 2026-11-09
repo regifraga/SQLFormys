@@ -64,9 +64,103 @@ Restart the Go API after changing `.env`. When the page loads, the frontend call
 
 If `PRODUCT_NAME` is empty or unset, the UI keeps the defaults from `front/index.html` (`SQLFormys` only).
 
+### Application version
+
+The version shown in the sidebar footer comes from the API (`GET /api/version`). To release a new version, edit the single line in [`back/internal/version/VERSION`](back/internal/version/VERSION) and rebuild or restart the API (`go run` / Docker image build embeds that file into the binary).
+
+### API access log (file rotation)
+
+Each HTTP request is written to rotating log files (see the **Log da API** section in [`.env.example`](.env.example)). Defaults: `back/logs/api.log`, rotation by size (`LOG_ROTATION=size`), or by calendar day (`daily` / `date`).
+
+Example line:
+
+```text
+2026-03-23 14:30:00 | ip=127.0.0.1 | user=EMPRESA\regivaldo | GET | path=/api/projects query=foo=bar | status=200 | duration_ms=27
+```
+
+For `POST`/`PUT`/`PATCH`, the request body is truncated according to `LOG_REQUEST_BODY_MAX_BYTES` (use `0` to disable). Application errors already emitted with `log.Printf` in handlers also go to the same file when `LOG_ENABLED=true`.
+
+With Docker Compose, `./back/logs` is mounted on `/app/logs` inside the API container.
+
 **Note:** This setting is for application branding. The title above each module form comes from the module name in the sidebar (the `.sql` filename); the subtitle path and the optional `--DESCRIPTION=` header tag control other on-screen text for that module.
 
 When running the API manually from the `back` folder, ensure the process can read your `.env` (the backend loads `.env` from the current working directory). With Docker Compose, variables from the root `.env` are passed to the API service when it is enabled.
+
+### Optional network authentication (IIS-style / Negotiate)
+
+Authentication is **off by default**. Set `AUTH_ENABLED=true` in the project `.env` to require a domain network identity on every `/api/*` call. There is **no password form** on the frontend: the browser performs a **Negotiate (Kerberos)** handshake, similar to IIS Windows Authentication.
+
+| Variable | Role |
+| :--- | :--- |
+| `AUTH_ENABLED` | `false` (default) = open app; `true` = protect API |
+| `AUTH_DEV_USER` | Only with `APP_ENV=development`: simulates `DOMAIN\user` on Linux without Active Directory |
+| `AUTH_KRB_KEYTAB` | Production: path to the HTTP service keytab |
+| `AUTH_KRB_SPN` | Production: service principal name (e.g. `HTTP/sqlformys.company.local`) |
+
+When authentication is enabled, serve the UI through **Nginx** with `API_BASE_URL=/api` so static files and the API share the same origin. Cross-origin calls (`http://localhost:3000` → `http://localhost:8080`) break Negotiate. The frontend Dockerfile includes [`front/nginx.conf`](front/nginx.conf) proxying `/api/` to the Go container.
+
+**Development (auth on, no AD):**
+
+```env
+APP_ENV=development
+AUTH_ENABLED=true
+AUTH_DEV_USER=COMPANY\your.user
+```
+
+**Production:**
+
+```env
+AUTH_ENABLED=true
+AUTH_KRB_KEYTAB=/path/to/http.keytab
+AUTH_KRB_SPN=HTTP/sqlformys.company.local
+API_BASE_URL=/api
+```
+
+The header shows the connected user after `GET /api/auth/me`. Browsers must treat the site as **intranet/trusted** for automatic Negotiate. If identity cannot be obtained, the UI shows “Não autenticado na rede” and does not load modules (no credential prompt).
+
+Set `AUTH_ENABLED=false` in `front/config.js` (or via Docker `envsubst`) when running the static UI against a separate API URL during local development without auth.
+
+### Deploy em Linux/Docker sem Active Directory (HTTP Basic no Nginx)
+
+When front and API run in containers on a Linux server **without** Kerberos/AD, use **Nginx HTTP Basic Auth** on the `front` container instead of `AUTH_KRB_*`. You manage users yourself; no infrastructure team is required for AD/SPN/keytab.
+
+| Variable | Role |
+| :--- | :--- |
+| `AUTH_ENABLED` | Keep **`false`** (API stays open behind the proxy; login is at Nginx) |
+| `API_BASE_URL` | Use **`/api`** so the UI and API share the same origin through Nginx |
+| `NGINX_BASIC_AUTH_ENABLED` | `true` to prompt for username/password in the browser |
+| `NGINX_BASIC_AUTH_REALM` | Text shown in the browser login dialog |
+| `NGINX_BASIC_AUTH_HTPASSWD_HOST_PATH` | Path on the **host** to the `htpasswd` file (default `./front/secrets/htpasswd`) |
+| `NGINX_BASIC_AUTH_HTPASSWD_FILE` | Path **inside** the `front` container (default `/etc/nginx/secrets/htpasswd`) |
+
+**1. Create credentials** (on the host):
+
+```bash
+mkdir -p front/secrets
+htpasswd -bc front/secrets/htpasswd your.username
+```
+
+Or outside the repo, e.g. `/var/lib/sqlformys/htpasswd`, and set `NGINX_BASIC_AUTH_HTPASSWD_HOST_PATH` in `.env`.
+
+(`apache2-utils` on Debian/Ubuntu; see [`front/secrets/README.md`](front/secrets/README.md).)
+
+**2. Configure `.env`:**
+
+```env
+AUTH_ENABLED=false
+API_BASE_URL=/api
+NGINX_BASIC_AUTH_ENABLED=true
+NGINX_BASIC_AUTH_REALM=SQLFormys
+# NGINX_BASIC_AUTH_HTPASSWD_HOST_PATH=/var/lib/sqlformys/htpasswd
+```
+
+**3. Start with Docker Compose.** The `front` service bind-mounts the host `htpasswd` file read-only. The browser asks for credentials before loading the app or calling `/api/*`.
+
+**Add users later:** run `htpasswd -b <host-path> newuser` on the server. Nginx re-reads the file per request — no container restart required.
+
+Do **not** enable Kerberos (`AUTH_ENABLED=true`) and Basic Auth at the same time: both use the `Authorization` header and will conflict.
+
+For defense in depth, you can still restrict network access (VPN, firewall) in addition to Basic Auth.
 
 ## Writing query modules
 

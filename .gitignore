@@ -52,5 +52,15 @@ go.work.sum
 # Query folders
 */queries/*
 
+# Logs da API
+back/logs/
+logs/
+*.log
+*.log.*
+
+# HTTP Basic do Nginx (front)
+front/secrets/htpasswd
+/htpasswd
+
 
 

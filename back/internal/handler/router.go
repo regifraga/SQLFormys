@@ -3,24 +3,25 @@ package handler
 import (
 	"net/http"
 
+	"sqlformys/internal/config"
 	"sqlformys/internal/service"
 	"sqlformys/pkg/database"
 )
 
 // NewRouter configura e retorna o roteador HTTP principal
-func NewRouter() *http.ServeMux {
+func NewRouter(cfg *config.Config) *http.ServeMux {
 	mux := http.NewServeMux()
 
-	authHandler := NewAuthHandler()
+	authHandler := NewAuthHandler(cfg)
+	metaHandler := NewMetaHandler(cfg)
 
 	// Inicializa o Motor de Queries Dinâmicas
 	connector := database.NewConnector()
 	querySvc := service.NewDynamicQueryService(connector)
 	queryHandler := NewQueryHandler(querySvc)
 
-	// Rotas de Autenticação
-	mux.HandleFunc("POST /api/auth/login", authHandler.Login)
-	mux.HandleFunc("POST /api/auth/register", authHandler.Register)
+	mux.HandleFunc("GET /api/auth/me", authHandler.Me)
+	mux.HandleFunc("GET /api/version", metaHandler.Version)
 
 	// Rotas Dinâmicas do SQLFormys Engine (Suportando N níveis de subpastas)
 	mux.HandleFunc("GET /api/projects", queryHandler.ListProjects)

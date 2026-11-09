@@ -43,15 +43,28 @@ let currentQueryLookups = {};
 /* ==========================================================================
    Inicialização
    ========================================================================== */
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
     initAppTooltips();
 
-    // Carregar menu de projetos
+    const versionPromise = loadAppVersion();
+
+    const authResult = await bootstrapAuth(API_BASE_URL);
+    await versionPromise;
+
+    if (!authResult.ok) {
+        if (!authResult.unauthorized) {
+            showToast('Autenticação', 'Não foi possível verificar a identidade de rede.', 'error');
+        }
+        return;
+    }
     loadProjects();
 
     // Event Listeners
     toggleBtn.addEventListener('click', () => {
         sidebar.classList.toggle('collapsed');
+        const collapsed = sidebar.classList.contains('collapsed');
+        toggleBtn.setAttribute('aria-label', collapsed ? 'Expandir Menu' : 'Recolher Menu');
+        toggleBtn.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
     });
 
     // Lógica de Redimensionamento da Sidebar
@@ -208,9 +221,27 @@ document.addEventListener('DOMContentLoaded', () => {
 /* ==========================================================================
    Funções de Rede (API)
    ========================================================================== */
+async function loadAppVersion() {
+    const el = document.getElementById('app-version-info');
+    if (!el) return;
+
+    try {
+        const response = await apiFetch(`${API_BASE_URL}/version`);
+        if (!response.ok) return;
+
+        const data = await response.json();
+        const base = data.name || 'SQLFormys';
+        const suffix = data.productName ? ` (${data.productName})` : '';
+        const ver = data.version ? ` v${data.version}` : '';
+        el.textContent = `${base}${suffix}${ver}`;
+    } catch (err) {
+        console.error(err);
+    }
+}
+
 async function loadProjects() {
     try {
-        const response = await fetch(`${API_BASE_URL}/projects`);
+        const response = await apiFetch(`${API_BASE_URL}/projects`);
         if (!response.ok) throw new Error('Falha ao carregar estrutura de projetos');
         
         const data = await response.json();
@@ -237,7 +268,7 @@ async function loadProjects() {
 
 async function loadFormFields(queryPath, moduleTitle) {
     try {
-        const response = await fetch(`${API_BASE_URL}/queries/${queryPath}`);
+        const response = await apiFetch(`${API_BASE_URL}/queries/${queryPath}`);
         if (!response.ok) throw new Error('Falha ao carregar campos do formulário');
         
         const data = await response.json();
@@ -286,7 +317,7 @@ async function executeQuery(payload) {
     const startTime = performance.now();
 
     try {
-        const response = await fetch(`${API_BASE_URL}/queries/${currentQueryPath}`, {
+        const response = await apiFetch(`${API_BASE_URL}/queries/${currentQueryPath}`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
@@ -334,6 +365,24 @@ async function executeQuery(payload) {
 /* ==========================================================================
    Renderização do Menu Lateral em Árvore (Tree View)
    ========================================================================== */
+function treeCollapsedAbbr(name) {
+    const parts = String(name || '').trim().split(/[\s._-]+/).filter(Boolean);
+    if (parts.length >= 2) {
+        return (parts[0][0] + parts[1][0]).toUpperCase();
+    }
+    const token = parts[0] || '?';
+    return token.slice(0, 2).toUpperCase();
+}
+
+function treeBadgeHue(name) {
+    let hash = 0;
+    const s = String(name || '');
+    for (let i = 0; i < s.length; i++) {
+        hash = (hash * 31 + s.charCodeAt(i)) >>> 0;
+    }
+    return hash % 360;
+}
+
 function renderTree(nodes, container, isSearching = false) {
     container.innerHTML = ''; // Limpar loading state
 
@@ -354,13 +403,23 @@ function renderTree(nodes, container, isSearching = false) {
             if (node.type === 'folder') {
                 const folderHeader = document.createElement('button');
                 folderHeader.className = 'tree-folder-header';
+                folderHeader.type = 'button';
                 folderHeader.style.paddingLeft = `${16 + (level * 16)}px`;
+                folderHeader.setAttribute('data-tooltip', node.name);
+                if (level === 0) {
+                    folderHeader.dataset.treeDepth = '0';
+                    folderHeader.style.setProperty('--tree-badge-hue', String(treeBadgeHue(node.name)));
+                }
+                const badge = level === 0
+                    ? `<span class="tree-collapsed-badge" aria-hidden="true">${treeCollapsedAbbr(node.name)}</span>`
+                    : '';
                 folderHeader.innerHTML = `
-                    <svg class="tree-icon folder-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <svg class="tree-icon folder-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                         <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
                     </svg>
+                    ${badge}
                     <span class="tree-title">${node.name}</span>
-                    <svg class="tree-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <svg class="tree-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                         <polyline points="6 9 12 15 18 9"></polyline>
                     </svg>
                 `;
@@ -379,6 +438,14 @@ function renderTree(nodes, container, isSearching = false) {
                 }
 
                 folderHeader.addEventListener('click', () => {
+                    if (sidebar.classList.contains('collapsed')) {
+                        sidebar.classList.remove('collapsed');
+                        toggleBtn.setAttribute('aria-label', 'Recolher Menu');
+                        toggleBtn.setAttribute('aria-expanded', 'true');
+                        childrenContainer.classList.add('open');
+                        folderHeader.classList.add('active');
+                        return;
+                    }
                     const isOpen = childrenContainer.classList.contains('open');
                     if (isOpen) {
                         childrenContainer.classList.remove('open');
@@ -559,6 +626,13 @@ function collectFormValues(includeEmpty = false) {
             }
             return;
         }
+        if (input.tagName === 'SELECT') {
+            const resolvedValue = resolveSelectOptionValue(input, input.value) || input.value;
+            if (resolvedValue !== '' || input.required || includeEmpty) {
+                payload[input.name] = resolvedValue;
+            }
+            return;
+        }
         if (input.value !== '' || input.required || includeEmpty) {
             const meta = fieldByName[input.name];
             payload[input.name] = (input.type === 'date' && meta)
@@ -578,6 +652,79 @@ function optionText(option) {
 function optionCode(option) {
     if (option.code === undefined || option.code === null) return '';
     return String(option.code);
+}
+
+function parseStaticSelectOptions(fieldType) {
+    const typeUpper = String(fieldType || '').toUpperCase();
+    if (!typeUpper.startsWith('SINGLE')
+        && !typeUpper.startsWith('MULTI')
+        && !typeUpper.startsWith('MULTIPLE')) {
+        return [];
+    }
+    const match = String(fieldType || '').match(/\(([^)]+)\)/);
+    if (!match) return [];
+    return match[1].split(/[,;|]/).map(opt => {
+        const parts = opt.split('=');
+        if (parts.length >= 2) {
+            return {
+                code: parts[0].trim(),
+                label: parts.slice(1).join('=').trim()
+            };
+        }
+        const text = opt.trim();
+        return { code: text, label: text };
+    });
+}
+
+function resolveStaticSelectDefault(field, defaultValue) {
+    const raw = String(defaultValue ?? '').trim();
+    if (!raw || !field) return raw;
+    const options = parseStaticSelectOptions(field.type);
+    for (const item of options) {
+        if (item.code === raw || item.label === raw) {
+            return item.code;
+        }
+    }
+    return raw;
+}
+
+function resolveStaticSelectDefaults(field) {
+    if (!field || !field.defaultValue) return [];
+    return field.defaultValue
+        .split(/[,;|]/)
+        .map(part => resolveStaticSelectDefault(field, part.trim()))
+        .filter(Boolean);
+}
+
+function resolveSelectOptionValue(select, desired) {
+    const target = String(desired ?? '').trim();
+    if (!target || !select) return '';
+    const options = Array.from(select.options).filter(option => option.value !== '');
+    if (options.some(option => option.value === target)) {
+        return target;
+    }
+    const byLabel = options.find(option => String(option.text || '').trim() === target);
+    return byLabel ? byLabel.value : '';
+}
+
+function applySelectDefaultValues(select, field) {
+    if (!select || !field || !field.defaultValue) return;
+    const typeUpper = String(field.type || '').toUpperCase();
+    const defaults = (select.multiple || isLookupMultiType(field.type) || typeUpper.startsWith('MULTI') || typeUpper.startsWith('MULTIPLE'))
+        ? resolveStaticSelectDefaults(field)
+        : [resolveStaticSelectDefault(field, field.defaultValue)];
+
+    if (select.multiple) {
+        Array.from(select.options).forEach(option => {
+            option.selected = defaults.includes(option.value);
+        });
+        return;
+    }
+
+    const resolved = defaults.map(code => resolveSelectOptionValue(select, code)).find(Boolean);
+    if (resolved) {
+        select.value = resolved;
+    }
 }
 
 function isFormFieldFilled(fieldName) {
@@ -669,7 +816,7 @@ async function loadLookupOptions(select) {
 
     select.dataset.lookupLoading = 'true';
     try {
-        const response = await fetch(`${API_BASE_URL}/lookups/${currentQueryPath}?name=${encodeURIComponent(lookupName)}&field=${encodeURIComponent(select.name)}`, {
+        const response = await apiFetch(`${API_BASE_URL}/lookups/${currentQueryPath}?name=${encodeURIComponent(lookupName)}&field=${encodeURIComponent(select.name)}`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
@@ -711,13 +858,24 @@ async function loadLookupOptions(select) {
         });
 
         if (select.multiple) {
+            const resolvedPrevious = previousValues.map(val => resolveSelectOptionValue(select, val));
             Array.from(select.options).forEach(option => {
-                option.selected = previousValues.includes(option.value);
+                option.selected = resolvedPrevious.includes(option.value);
             });
-        } else if (previousValues[0] && Array.from(select.options).some(option => option.value === previousValues[0])) {
-            select.value = previousValues[0];
-        } else if (keepEmpty) {
-            select.value = '';
+        } else {
+            const field = currentFields.find(item => item.field === select.name);
+            let resolved = previousValues[0]
+                ? resolveSelectOptionValue(select, previousValues[0])
+                : '';
+            if (!resolved && field?.defaultValue) {
+                resolved = resolveSelectOptionValue(select, field.defaultValue)
+                    || resolveSelectOptionValue(select, resolveStaticSelectDefault(field, field.defaultValue));
+            }
+            if (resolved) {
+                select.value = resolved;
+            } else if (keepEmpty) {
+                select.value = '';
+            }
         }
 
         select.dispatchEvent(new Event('options-updated', { bubbles: true }));
@@ -727,6 +885,26 @@ async function loadLookupOptions(select) {
         showToast('Erro', error.message || 'Não foi possível carregar as opções do lookup.', 'error');
     } finally {
         delete select.dataset.lookupLoading;
+    }
+}
+
+async function preloadLookupSelectLabels() {
+    if (!currentFields || currentFields.length === 0) return;
+
+    for (const field of currentFields) {
+        const lookupName = parseLookupName(field.type);
+        if (!lookupName) continue;
+
+        const select = dynamicForm.querySelector(`select[name="${field.field}"]`);
+        if (!select || select.dataset.lookupName !== lookupName) continue;
+
+        const hasValue = select.multiple
+            ? Array.from(select.selectedOptions).some(option => option.value !== '')
+            : String(select.value || '').trim() !== '';
+        if (!hasValue && !field.defaultValue) continue;
+        if (!validateLookupPrerequisites(select)) continue;
+
+        await loadLookupOptions(select);
     }
 }
 
@@ -1217,7 +1395,7 @@ function renderForm(queryPath, moduleTitle, fields, description = '', executeMod
                 if (match) {
                     const optionsStr = match[1];
                     const optionsList = optionsStr.split(/[,;|]/);
-                    const defaultValues = field.defaultValue ? field.defaultValue.split(/[,;|]/).map(d => d.trim()) : [];
+                    const defaultValues = resolveStaticSelectDefaults(field);
 
                     optionsList.forEach(opt => {
                         const parts = opt.split('=');
@@ -1241,25 +1419,28 @@ function renderForm(queryPath, moduleTitle, fields, description = '', executeMod
                             if (defaultValues.includes(val)) {
                                 option.selected = true;
                             }
-                        } else if (field.defaultValue && val === field.defaultValue) {
+                        } else if (defaultValues.includes(val)) {
                             option.selected = true;
                         }
                         select.appendChild(option);
                     });
                 }
             } else if (field.defaultValue) {
-                const defaultValues = field.defaultValue.split(/[,;|]/).map(d => d.trim()).filter(Boolean);
-                defaultValues.forEach(val => {
+                const defaultValues = resolveStaticSelectDefaults(field);
+                if (defaultValues.length === 0) {
+                    defaultValues.push(String(field.defaultValue).trim());
+                }
+                defaultValues.forEach(code => {
                     const option = document.createElement('option');
-                    option.value = val;
-                    option.text = val;
+                    option.value = code;
+                    option.text = code;
                     option.selected = true;
                     select.appendChild(option);
                 });
             }
 
-            if (isSingle && field.defaultValue && !isLookup) {
-                select.value = field.defaultValue;
+            if (field.defaultValue) {
+                applySelectDefaultValues(select, field);
             }
 
             group.appendChild(label);
@@ -1359,6 +1540,8 @@ function renderForm(queryPath, moduleTitle, fields, description = '', executeMod
         group.appendChild(input);
         dynamicForm.appendChild(group);
     });
+
+    void preloadLookupSelectLabels();
 }
 
 /* ==========================================================================
@@ -1403,10 +1586,10 @@ function handleClear() {
             const input = document.getElementById(`field_${field.field}`);
             if (input) {
                 if (input.tagName === 'SELECT' && input.multiple) {
-                    const defaultValues = field.defaultValue ? field.defaultValue.split(/[,;|]/).map(d => d.trim()) : [];
-                    Array.from(input.options).forEach(option => {
-                        option.selected = defaultValues.includes(option.value);
-                    });
+                    applySelectDefaultValues(input, field);
+                    input.dispatchEvent(new Event('change', { bubbles: true }));
+                } else if (input.tagName === 'SELECT') {
+                    applySelectDefaultValues(input, field);
                     input.dispatchEvent(new Event('change', { bubbles: true }));
                 } else {
                     input.value = field.defaultValue || '';
