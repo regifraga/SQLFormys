@@ -12,6 +12,7 @@ var (
 	sqlServerVarRefRegex = regexp.MustCompile(`@([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z0-9_]+)*)`)
 	pgVarRefRegex        = regexp.MustCompile(`(?i)current_setting\s*\(\s*'vars\.([^']+)'`)
 	conditionalVarRegex  = regexp.MustCompile(`/\*\[([A-Za-z0-9_.]+)=`)
+	lookupFieldTypeRegex = regexp.MustCompile(`(?i)^(?:LOOKUP_MULTI|MULTILOOKUP|LOOKUP)\(([^)]+)\)`)
 )
 
 // LookupPrerequisiteError is returned when required lookup dependencies are missing.
@@ -174,22 +175,81 @@ func ValidateLookupPrerequisites(lookupSQL, lookupField string, fields []domain.
 	return &LookupPrerequisiteError{MissingLabels: missingLabels}
 }
 
-// BuildLookupsMetadata maps lookup names to form fields they reference.
-func BuildLookupsMetadata(lookups map[string]string, fields []domain.Field) map[string]domain.LookupMetadata {
+// LookupNameFromFieldType extracts the lookup block name from LOOKUP(Name) / LOOKUP_MULTI(Name).
+func LookupNameFromFieldType(fieldType string) string {
+	match := lookupFieldTypeRegex.FindStringSubmatch(strings.TrimSpace(fieldType))
+	if len(match) < 2 {
+		return ""
+	}
+	return strings.TrimSpace(match[1])
+}
+
+func appendDependsOnUnique(dependsOn []string, fieldName string) []string {
+	for _, existing := range dependsOn {
+		if strings.EqualFold(existing, fieldName) {
+			return dependsOn
+		}
+	}
+	return append(dependsOn, fieldName)
+}
+
+func lookupOwnerField(lookupsByField map[string]string, lookupName string) string {
+	for fieldName, name := range lookupsByField {
+		if strings.EqualFold(name, lookupName) {
+			return fieldName
+		}
+	}
+	return ""
+}
+
+// ApplyLookupDependencies builds lookup metadata (with self-references removed) and
+// sets Field.DependsOn on each LOOKUP / LOOKUP_MULTI form control.
+func ApplyLookupDependencies(fields []domain.Field, lookups map[string]string) ([]domain.Field, map[string]domain.LookupMetadata) {
 	metadata := make(map[string]domain.LookupMetadata, len(lookups))
 	if len(lookups) == 0 {
-		return metadata
+		return fields, metadata
 	}
 
-	for name, sql := range lookups {
+	lookupsByField := make(map[string]string, len(fields))
+	for _, field := range fields {
+		if name := LookupNameFromFieldType(field.Type); name != "" {
+			lookupsByField[field.Field] = name
+		}
+	}
+
+	for lookupName, sql := range lookups {
+		ownerField := lookupOwnerField(lookupsByField, lookupName)
 		var dependsOn []string
 		for _, ref := range LookupReferencedFields(sql) {
-			if _, ok := findFormField(fields, ref); ok {
-				field, _ := findFormField(fields, ref)
-				dependsOn = append(dependsOn, field.Field)
+			formField, ok := findFormField(fields, ref)
+			if !ok {
+				continue
 			}
+			if ownerField != "" && strings.EqualFold(formField.Field, ownerField) {
+				continue
+			}
+			dependsOn = appendDependsOnUnique(dependsOn, formField.Field)
 		}
-		metadata[name] = domain.LookupMetadata{DependsOn: dependsOn}
+		metadata[lookupName] = domain.LookupMetadata{DependsOn: dependsOn}
 	}
+
+	enriched := make([]domain.Field, len(fields))
+	copy(enriched, fields)
+	for i := range enriched {
+		lookupName := LookupNameFromFieldType(enriched[i].Type)
+		if lookupName == "" {
+			continue
+		}
+		if meta, ok := metadata[lookupName]; ok {
+			enriched[i].DependsOn = append([]string(nil), meta.DependsOn...)
+		}
+	}
+
+	return enriched, metadata
+}
+
+// BuildLookupsMetadata maps lookup names to form fields they reference.
+func BuildLookupsMetadata(lookups map[string]string, fields []domain.Field) map[string]domain.LookupMetadata {
+	_, metadata := ApplyLookupDependencies(fields, lookups)
 	return metadata
 }

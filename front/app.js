@@ -203,6 +203,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         filterGrid();
     }
 
+    dynamicForm.addEventListener('change', handleFormControlChange);
+
     dynamicForm.addEventListener('keydown', (e) => {
         if (e.key === 'Escape') {
             e.preventDefault();
@@ -805,10 +807,147 @@ function validateLookupPrerequisites(select) {
     return false;
 }
 
+function fieldNamesEqual(a, b) {
+    return String(a || '').toLowerCase() === String(b || '').toLowerCase();
+}
+
+function getLookupDependsOn(field, lookupName) {
+    if (field && Array.isArray(field.dependsOn) && field.dependsOn.length > 0) {
+        return field.dependsOn;
+    }
+    const meta = lookupName ? currentQueryLookups[lookupName] : null;
+    if (meta && Array.isArray(meta.dependsOn)) {
+        return meta.dependsOn;
+    }
+    return [];
+}
+
+function getDependentLookupSelects(parentFieldName) {
+    const dependents = [];
+    if (!currentFields || !parentFieldName) return dependents;
+
+    currentFields.forEach(field => {
+        const lookupName = parseLookupName(field.type);
+        if (!lookupName) return;
+
+        const deps = getLookupDependsOn(field, lookupName);
+        if (!deps.some(dep => fieldNamesEqual(dep, parentFieldName))) return;
+
+        const select = dynamicForm.querySelector(`select[name="${field.field}"]`);
+        if (!select || !select.dataset.lookupName) return;
+
+        dependents.push({ field, select });
+    });
+
+    return dependents;
+}
+
+function getControlValue(control) {
+    if (!control) return '';
+    if (control.type === 'radio') {
+        const checked = dynamicForm.querySelector(`input[type="radio"][name="${control.name}"]:checked`);
+        return checked ? checked.value : '';
+    }
+    if (control.tagName === 'SELECT' && control.multiple) {
+        return Array.from(control.selectedOptions).map(opt => opt.value).sort().join(',');
+    }
+    return String(control.value ?? '');
+}
+
+function getSelectValueSignature(select) {
+    if (!select) return '';
+    if (select.multiple) {
+        return Array.from(select.selectedOptions).map(opt => opt.value).sort().join(',');
+    }
+    return String(select.value ?? '');
+}
+
+function resetLookupSelect(select) {
+    if (!select) return;
+
+    const field = currentFields.find(item => item.field === select.name);
+    const isSingle = !select.multiple;
+    const keepEmpty = isSingle && field && !field.required;
+
+    select.innerHTML = '';
+    if (keepEmpty) {
+        const emptyOption = document.createElement('option');
+        emptyOption.value = '';
+        emptyOption.text = '';
+        select.appendChild(emptyOption);
+    }
+
+    if (select.multiple) {
+        Array.from(select.options).forEach(option => {
+            option.selected = false;
+        });
+    } else {
+        select.value = keepEmpty ? '' : '';
+    }
+
+    delete select.dataset.lookupLoaded;
+    delete select.dataset.lookupLoading;
+
+    const value = getControlValue(select);
+    dynamicForm.querySelectorAll(`[name="${select.name}"]`).forEach(el => {
+        el.dataset.prevValue = value;
+    });
+
+    select.dispatchEvent(new Event('options-updated', { bubbles: true }));
+}
+
+function clearDependentLookups(changedFieldName, visited = new Set()) {
+    const key = String(changedFieldName || '');
+    if (!key || visited.has(key)) return;
+    visited.add(key);
+
+    getDependentLookupSelects(changedFieldName).forEach(({ field, select }) => {
+        if (visited.has(field.field)) return;
+        resetLookupSelect(select);
+        clearDependentLookups(field.field, visited);
+    });
+}
+
+function snapshotFormControlValues() {
+    if (!dynamicForm) return;
+
+    const seen = new Set();
+    dynamicForm.querySelectorAll('.form-control, .form-radio').forEach(control => {
+        const name = control.name;
+        if (!name || seen.has(name)) return;
+        seen.add(name);
+        const value = getControlValue(control);
+        dynamicForm.querySelectorAll(`[name="${name}"]`).forEach(el => {
+            el.dataset.prevValue = value;
+        });
+    });
+}
+
+function handleFormControlChange(event) {
+    const control = event.target;
+    if (!control || !dynamicForm.contains(control)) return;
+    if (!control.classList.contains('form-control') && !control.classList.contains('form-radio')) return;
+
+    const name = control.name;
+    if (!name) return;
+
+    const current = getControlValue(control);
+    const prev = control.dataset.prevValue;
+    dynamicForm.querySelectorAll(`[name="${name}"]`).forEach(el => {
+        el.dataset.prevValue = current;
+    });
+
+    if (prev === undefined || prev === current) return;
+
+    clearDependentLookups(name);
+}
+
 async function loadLookupOptions(select) {
     const lookupName = select.dataset.lookupName;
     if (!lookupName || !currentQueryPath || select.dataset.lookupLoading === 'true') return;
     if (!validateLookupPrerequisites(select)) return;
+
+    const valueBefore = getSelectValueSignature(select);
 
     const previousValues = select.multiple
         ? Array.from(select.selectedOptions).map(opt => opt.value)
@@ -878,8 +1017,16 @@ async function loadLookupOptions(select) {
             }
         }
 
+        const valueAfter = getSelectValueSignature(select);
+        select.dataset.lookupLoaded = 'true';
+
         select.dispatchEvent(new Event('options-updated', { bubbles: true }));
-        select.dispatchEvent(new Event('change', { bubbles: true }));
+        if (valueBefore !== valueAfter) {
+            dynamicForm.querySelectorAll(`[name="${select.name}"]`).forEach(el => {
+                el.dataset.prevValue = valueAfter;
+            });
+            select.dispatchEvent(new Event('change', { bubbles: true }));
+        }
     } catch (error) {
         console.error(error);
         showToast('Erro', error.message || 'Não foi possível carregar as opções do lookup.', 'error');
@@ -906,6 +1053,8 @@ async function preloadLookupSelectLabels() {
 
         await loadLookupOptions(select);
     }
+
+    snapshotFormControlValues();
 }
 
 function enhanceCustomSelect(select) {
@@ -1541,6 +1690,7 @@ function renderForm(queryPath, moduleTitle, fields, description = '', executeMod
         dynamicForm.appendChild(group);
     });
 
+    snapshotFormControlValues();
     void preloadLookupSelectLabels();
 }
 
@@ -1598,6 +1748,8 @@ function handleClear() {
             }
         }
     });
+
+    snapshotFormControlValues();
 }
 
 function handleExecute() {

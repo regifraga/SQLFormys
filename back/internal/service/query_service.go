@@ -94,13 +94,14 @@ func (s *queryService) GetMetadata(basePath, queryPath string) (domain.MetadataR
 		return domain.MetadataResponse{}, fmt.Errorf("erro ao fazer parse do SQL: %w", err)
 	}
 
+	fields, lookupsMeta := engine.ApplyLookupDependencies(parser.Fields, parser.Lookups)
 	return domain.MetadataResponse{
 		Server:      parser.Server,
 		Description: parser.Description,
 		ExecuteMode: parser.ExecuteMode,
 		Timeout:     parser.Timeout,
-		Fields:      parser.Fields,
-		Lookups:     engine.BuildLookupsMetadata(parser.Lookups, parser.Fields),
+		Fields:      fields,
+		Lookups:     lookupsMeta,
 	}, nil
 }
 

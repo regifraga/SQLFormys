@@ -11,6 +11,7 @@ type Field struct {
 	Required     bool   `json:"required"`
 	DefaultValue string `json:"defaultValue"`
 	Information  string `json:"information"`
+	DependsOn    []string `json:"dependsOn,omitempty"`
 	Operator     string `json:"-"` // Internal use for building query, typically '='
 	DbType       string `json:"-"` // Internal use for database type (e.g. for SINGLE)
 }

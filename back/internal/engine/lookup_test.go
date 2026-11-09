@@ -39,13 +39,42 @@ func TestValidateLookupPrerequisites(t *testing.T) {
 func TestBuildLookupsMetadata(t *testing.T) {
 	fields := []domain.Field{
 		{Field: "CD_EMPRESA", Required: true},
-		{Field: "CD_USUARIO", Required: true},
+		{Field: "CD_USUARIO", Required: true, Type: "LOOKUP(Usuarios)"},
 	}
 	lookups := map[string]string{
-		"Usuarios": "SELECT CdUsuario AS Code FROM COR_USUARIO WHERE CdEmpresa = @CD_EMPRESA",
+		"Usuarios": "SELECT CdUsuario AS Code FROM COR_USUARIO WHERE CdEmpresa = @CD_EMPRESA AND CdUsuario = @CD_USUARIO",
 	}
 	meta := BuildLookupsMetadata(lookups, fields)
 	assert.Equal(t, []string{"CD_EMPRESA"}, meta["Usuarios"].DependsOn)
+}
+
+func TestApplyLookupDependenciesCascadeAndSelfReference(t *testing.T) {
+	fields := []domain.Field{
+		{Field: "IC_TIPO", Type: "LOOKUP(TipoArquivo)"},
+		{Field: "IC_TIPO_CONSULTA", Type: "LOOKUP(TipoConsulta)"},
+		{Field: "IC_DETALHE", Type: "LOOKUP(TipoDetalhe)"},
+	}
+	lookups := map[string]string{
+		"TipoArquivo":  "SELECT Code, Value FROM T1",
+		"TipoConsulta": "SELECT Code, Value FROM T2 WHERE Tipo = @IC_TIPO AND Consulta = @IC_TIPO_CONSULTA",
+		"TipoDetalhe":  "SELECT Code, Value FROM T3 WHERE Consulta = @IC_TIPO_CONSULTA",
+	}
+
+	enriched, meta := ApplyLookupDependencies(fields, lookups)
+
+	assert.Equal(t, []string(nil), meta["TipoArquivo"].DependsOn)
+	assert.Equal(t, []string{"IC_TIPO"}, meta["TipoConsulta"].DependsOn)
+	assert.Equal(t, []string{"IC_TIPO_CONSULTA"}, meta["TipoDetalhe"].DependsOn)
+
+	assert.Empty(t, enriched[0].DependsOn)
+	assert.Equal(t, []string{"IC_TIPO"}, enriched[1].DependsOn)
+	assert.Equal(t, []string{"IC_TIPO_CONSULTA"}, enriched[2].DependsOn)
+}
+
+func TestLookupNameFromFieldType(t *testing.T) {
+	assert.Equal(t, "TipoArquivo", LookupNameFromFieldType("LOOKUP(TipoArquivo)"))
+	assert.Equal(t, "UFsAtendimento", LookupNameFromFieldType("LOOKUP_MULTI(UFsAtendimento)"))
+	assert.Equal(t, "", LookupNameFromFieldType("VARCHAR"))
 }
 
 func TestMapLookupOptions(t *testing.T) {
