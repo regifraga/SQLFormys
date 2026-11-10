@@ -299,6 +299,7 @@ async function loadFormFields(queryPath, moduleTitle) {
         currentResultType = String(data.resultType || 'GRID').toUpperCase();
         
         currentQueryPath = queryPath;
+        window.sqlformysActiveQueryPath = queryPath;
         currentFields = fields;
         currentQueryLookups = data.lookups || {};
 
@@ -1458,6 +1459,56 @@ function enhanceCustomSelect(select) {
     rebuildList();
 }
 
+const FORM_MODULE_EDIT_ICON = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>';
+
+function adminCanEditSql() {
+    if (typeof window.isAdminUser === 'function' && window.isAdminUser()) {
+        return true;
+    }
+    const identity = typeof getAuthIdentity === 'function' ? getAuthIdentity() : null;
+    return Boolean(identity && identity.isAdmin);
+}
+
+function syncFormModuleEditButton(queryPath) {
+    const formCard = document.getElementById('form-container');
+    const header = formCard?.querySelector('.form-card-header');
+    if (!header) return;
+
+    let btn = document.getElementById('form-module-edit-btn');
+    if (!btn) {
+        btn = document.createElement('button');
+        btn.type = 'button';
+        btn.id = 'form-module-edit-btn';
+        btn.className = 'tree-icon-btn form-module-edit-btn hidden';
+        btn.setAttribute('aria-label', 'Editar SQL');
+        btn.setAttribute('data-tooltip', 'Editar SQL');
+        header.appendChild(btn);
+    }
+
+    const show = adminCanEditSql() && queryPath;
+    btn.classList.toggle('hidden', !show);
+    btn.setAttribute('aria-hidden', show ? 'false' : 'true');
+
+    if (!show) {
+        btn.onclick = null;
+        return;
+    }
+
+    if (!btn.dataset.boundEdit) {
+        btn.dataset.boundEdit = '1';
+        btn.innerHTML = FORM_MODULE_EDIT_ICON;
+    }
+
+    btn.onclick = (e) => {
+        e.preventDefault();
+        if (typeof window.openSqlEditor === 'function') {
+            window.openSqlEditor(API_BASE_URL, queryPath);
+        } else {
+            showToast('Editor SQL', 'Painel administrativo indisponível.', 'error');
+        }
+    };
+}
+
 /* ==========================================================================
    Renderização do Formulário Dinâmico
    ========================================================================== */
@@ -1546,6 +1597,11 @@ function renderForm(queryPath, moduleTitle, fields, description = '', executeMod
         } else {
             metaContainer.classList.add('hidden');
         }
+    }
+
+    syncFormModuleEditButton(queryPath);
+    if (typeof window.updateFormModuleEditAction === 'function') {
+        window.updateFormModuleEditAction(queryPath, API_BASE_URL);
     }
 
     // Limpar form
@@ -1793,6 +1849,7 @@ function renderForm(queryPath, moduleTitle, fields, description = '', executeMod
    Ações dos Botões do Formulário
    ========================================================================== */
 function handleCancel() {
+    syncFormModuleEditButton(null);
     formContainer.classList.add('hidden');
     gridContainer.classList.add('hidden');
     emptyState.classList.remove('hidden');
@@ -1802,6 +1859,7 @@ function handleCancel() {
     document.querySelectorAll('.favorite-item').forEach(item => item.classList.remove('active'));
     
     currentQueryPath = null;
+    window.sqlformysActiveQueryPath = '';
     currentFields = [];
     currentQueryLookups = {};
     currentQueryResult = null;

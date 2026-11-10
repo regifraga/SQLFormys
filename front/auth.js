@@ -181,7 +181,14 @@ async function bootstrapAuth(apiBaseUrl) {
         if (cached && cached.username) {
             renderAuthHeader(cached);
             if (typeof initUserMenu === 'function') initUserMenu(cached, apiBase);
-            if (typeof initAdminPanel === 'function') initAdminPanel(cached, apiBase);
+            if (typeof initAdminPanel === 'function') {
+                initAdminPanel(cached, apiBase);
+            } else if (cached) {
+                window.sqlformysAuthIdentity = cached;
+            }
+            if (typeof syncFormModuleEditButton === 'function') {
+                syncFormModuleEditButton(window.sqlformysActiveQueryPath || null);
+            }
         }
     }
 
@@ -222,6 +229,11 @@ async function bootstrapAuth(apiBaseUrl) {
     }
     if (typeof initAdminPanel === 'function') {
         initAdminPanel(identity, apiBase);
+    } else if (identity && identity.username) {
+        window.sqlformysAuthIdentity = identity;
+    }
+    if (typeof syncFormModuleEditButton === 'function') {
+        syncFormModuleEditButton(window.sqlformysActiveQueryPath || null);
     }
     return { ok: true, identity };
 }

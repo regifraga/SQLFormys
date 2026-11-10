@@ -747,6 +747,7 @@ body.is-resizing .main-content {
 }
 
 .form-card {
+    position: relative;
     overflow: visible;
 }
 
@@ -760,6 +761,41 @@ body.is-resizing .main-content {
     font-weight: 600;
     color: var(--text-primary);
     margin-bottom: 4px;
+}
+
+.form-card-header {
+    position: relative;
+}
+
+.form-card-header:has(.form-module-edit-btn:not(.hidden)) {
+    padding-right: 52px;
+}
+
+.form-module-edit-btn {
+    position: absolute;
+    top: 14px;
+    right: 14px;
+    z-index: 3;
+    width: 32px;
+    height: 32px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-surface);
+    color: var(--text-secondary);
+}
+
+.form-module-edit-btn:not(.hidden) {
+    display: inline-flex !important;
+}
+
+.form-module-edit-btn:hover {
+    color: var(--primary-color);
+    border-color: var(--primary-color);
+    background: var(--primary-soft);
+}
+
+.form-module-edit-btn svg {
+    width: 16px;
+    height: 16px;
 }
 
 .module-path {

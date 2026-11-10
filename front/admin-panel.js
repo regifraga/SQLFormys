@@ -6,8 +6,19 @@ let sqlEditorInstance = null;
 let sqlEditorPath = null;
 let adminUsersCache = [];
 
+function resolveAuthIdentity() {
+    if (window.sqlformysAuthIdentity && window.sqlformysAuthIdentity.username) {
+        return window.sqlformysAuthIdentity;
+    }
+    if (typeof getAuthIdentity === 'function') {
+        return getAuthIdentity();
+    }
+    return null;
+}
+
 function isAdminUser() {
-    return Boolean(window.sqlformysAuthIdentity && window.sqlformysAuthIdentity.isAdmin);
+    const identity = resolveAuthIdentity();
+    return Boolean(identity && identity.isAdmin);
 }
 
 function openAppModal({ title, body, primaryLabel = 'Confirmar', secondaryLabel = 'Cancelar', onPrimary, onSecondary }) {
@@ -484,18 +495,90 @@ async function openSqlEditor(apiBaseUrl, relPath, initialContent) {
     refreshSqlEditorLayout();
 }
 
+function moduleTitleForPath(path) {
+    const pathNorm = String(path || '').trim();
+    if (!pathNorm) return '';
+    const titleEl = document.getElementById('form-title');
+    if (titleEl && window.sqlformysActiveQueryPath === pathNorm) {
+        const title = titleEl.textContent?.trim();
+        if (title) return title;
+    }
+    const parts = pathNorm.split('/');
+    return parts[parts.length - 1] || pathNorm;
+}
+
+async function reloadModuleFormAfterSqlSave(savedPath) {
+    const path = String(savedPath || '').trim();
+    if (!path || typeof loadFormFields !== 'function') return;
+    sqlEditorPath = null;
+    document.getElementById('sql-editor-container')?.classList.add('hidden');
+    await loadFormFields(path, moduleTitleForPath(path));
+}
+
 function closeSqlEditor() {
     const container = document.getElementById('sql-editor-container');
     container?.classList.add('hidden');
     sqlEditorPath = null;
+    const path = window.sqlformysActiveQueryPath;
+    const formContainer = document.getElementById('form-container');
+    const gridContainer = document.getElementById('grid-container');
     const emptyState = document.getElementById('empty-state');
-    if (emptyState && !currentQueryPath) {
+    if (path && formContainer) {
+        formContainer.classList.remove('hidden');
+        emptyState?.classList.add('hidden');
+        return;
+    }
+    formContainer?.classList.add('hidden');
+    gridContainer?.classList.add('hidden');
+    if (emptyState) {
         emptyState.classList.remove('hidden');
     }
 }
 
+function ensureFormModuleEditButton() {
+    const header = document.querySelector('#form-container .form-card-header');
+    if (!header) return null;
+    let btn = document.getElementById('form-module-edit-btn');
+    if (!btn) {
+        btn = document.createElement('button');
+        btn.type = 'button';
+        btn.id = 'form-module-edit-btn';
+        btn.className = 'tree-icon-btn form-module-edit-btn hidden';
+        btn.setAttribute('aria-label', 'Editar SQL');
+        btn.setAttribute('data-tooltip', 'Editar SQL');
+        header.appendChild(btn);
+    }
+    return btn;
+}
+
+function updateFormModuleEditAction(queryPath, apiBaseUrl) {
+    const btn = ensureFormModuleEditButton();
+    if (!btn) return;
+    if (!isAdminUser() || !queryPath) {
+        btn.classList.add('hidden');
+        btn.onclick = null;
+        return;
+    }
+    btn.classList.remove('hidden');
+    if (!btn.dataset.initialized) {
+        btn.dataset.initialized = '1';
+        btn.innerHTML = ICON_EDIT;
+    }
+    btn.onclick = () => openSqlEditor(apiBaseUrl, queryPath);
+}
+
 function initAdminPanel(identity, apiBaseUrl) {
     window.sqlformysAuthIdentity = identity || null;
+    const activePath = typeof window.sqlformysActiveQueryPath === 'string'
+        ? window.sqlformysActiveQueryPath
+        : '';
+    const formEl = document.getElementById('form-container');
+    if (activePath && formEl && !formEl.classList.contains('hidden')) {
+        updateFormModuleEditAction(activePath, apiBaseUrl);
+    } else if (!isAdminUser()) {
+        updateFormModuleEditAction(null, apiBaseUrl);
+    }
+
     if (!identity || !identity.isAdmin) return;
 
     fetchAdminUsers(apiBaseUrl);
@@ -518,8 +601,9 @@ function initAdminPanel(identity, apiBaseUrl) {
                 return;
             }
             showToast('Editor SQL', 'Arquivo salvo.', 'success');
+            const savedPath = sqlEditorPath;
             await loadProjects();
-            closeSqlEditor();
+            await reloadModuleFormAfterSqlSave(savedPath);
         });
     }
     if (cancelBtn && !cancelBtn.dataset.bound) {
@@ -565,6 +649,7 @@ window.renderAdminUsersPanel = renderAdminUsersPanel;
 window.renderAdminUsersTree = renderAdminUsersTree;
 window.attachFolderAdminActions = attachFolderAdminActions;
 window.attachModuleEditAction = attachModuleEditAction;
+window.updateFormModuleEditAction = updateFormModuleEditAction;
 window.isAdminUser = isAdminUser;
 window.openSqlEditor = openSqlEditor;
 window.fetchAdminUsers = fetchAdminUsers;
