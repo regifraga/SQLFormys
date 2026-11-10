@@ -37,6 +37,7 @@ func proxyIdentityForAccessLog(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if id, ok := IdentityFromProxyHeaders(r); ok {
 			logging.SetRequestUser(r, id.Username)
+			r = r.WithContext(WithIdentity(r.Context(), id))
 		}
 		next.ServeHTTP(w, r)
 	})

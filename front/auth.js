@@ -3,6 +3,37 @@
  */
 
 const AUTH_STORAGE_KEY = 'sqlformys_auth_identity';
+const LOGGED_OUT_KEY = 'sqlformys_logged_out';
+
+function isLoggedOut() {
+    try {
+        return sessionStorage.getItem(LOGGED_OUT_KEY) === '1';
+    } catch {
+        return false;
+    }
+}
+
+function clearLoggedOutFlag() {
+    try {
+        sessionStorage.removeItem(LOGGED_OUT_KEY);
+    } catch {
+        /* ignore */
+    }
+}
+
+function markLoggedOut() {
+    setCachedIdentity(null);
+    try {
+        sessionStorage.setItem(LOGGED_OUT_KEY, '1');
+    } catch {
+        /* ignore */
+    }
+}
+
+function logout() {
+    markLoggedOut();
+    window.location.href = '/auth-logout.html';
+}
 
 function parseEnvBool(value, defaultValue = false) {
     if (value === undefined || value === null || String(value).trim() === '') {
@@ -97,6 +128,27 @@ function renderAuthHeader(identity, unauthenticated = false) {
     renderAuthSidebar(hasKnownUser(identity) ? identity : null, false);
 }
 
+function showLoggedOutMessage() {
+    const emptyState = document.getElementById('empty-state');
+    const treeNavigation = document.getElementById('tree-navigation');
+    const wrap = document.getElementById('user-menu-wrap');
+    wrap?.classList.add('hidden');
+    if (treeNavigation) {
+        treeNavigation.innerHTML =
+            '<div class="loading-state" style="color: var(--text-muted);">Sessão encerrada.</div>';
+    }
+    if (emptyState) {
+        emptyState.classList.remove('hidden');
+        const title = emptyState.querySelector('h2');
+        const text = emptyState.querySelector('p');
+        if (title) title.textContent = 'Você saiu da aplicação';
+        if (text) {
+            text.textContent =
+                'Para acessar novamente, entre com usuário e senha. Se o navegador não pedir credenciais, use a página de acesso negado (Tentar novamente) ou feche todas as abas deste site.';
+        }
+    }
+}
+
 function showAuthGateMessage() {
     const emptyState = document.getElementById('empty-state');
     const treeNavigation = document.getElementById('tree-navigation');
@@ -121,10 +173,16 @@ function showAuthGateMessage() {
  */
 async function bootstrapAuth(apiBaseUrl) {
     const kerberosRequired = isAuthEnabled();
+    const loggedOut = isLoggedOut();
+    const apiBase = (window.ENV && window.ENV.API_BASE_URL) ? window.ENV.API_BASE_URL : 'http://localhost:8080/api';
 
-    const cached = getCachedIdentity();
-    if (cached && cached.username) {
-        renderAuthHeader(cached);
+    if (!loggedOut) {
+        const cached = getCachedIdentity();
+        if (cached && cached.username) {
+            renderAuthHeader(cached);
+            if (typeof initUserMenu === 'function') initUserMenu(cached, apiBase);
+            if (typeof initAdminPanel === 'function') initAdminPanel(cached, apiBase);
+        }
     }
 
     let response;
@@ -143,7 +201,7 @@ async function bootstrapAuth(apiBaseUrl) {
             return { ok: false, unauthorized: true };
         }
         renderAuthHeader(null);
-        return { ok: true };
+        return { ok: loggedOut ? false : true, loggedOut: loggedOut || undefined };
     }
 
     if (!response.ok) {
@@ -151,11 +209,27 @@ async function bootstrapAuth(apiBaseUrl) {
     }
 
     const identity = await response.json();
+
     if (hasKnownUser(identity)) {
+        clearLoggedOutFlag();
         setCachedIdentity(identity);
     } else {
         setCachedIdentity(null);
     }
     renderAuthHeader(identity);
+    if (typeof initUserMenu === 'function') {
+        initUserMenu(identity, apiBase);
+    }
+    if (typeof initAdminPanel === 'function') {
+        initAdminPanel(identity, apiBase);
+    }
     return { ok: true, identity };
 }
+
+function getAuthIdentity() {
+    return getCachedIdentity();
+}
+
+window.getAuthIdentity = getAuthIdentity;
+window.logout = logout;
+window.isLoggedOut = isLoggedOut;

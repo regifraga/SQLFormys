@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	"sqlformys/internal/accounts"
 	"sqlformys/internal/auth"
 	"sqlformys/internal/config"
 	"sqlformys/internal/handler"
@@ -25,7 +26,7 @@ func corsMiddleware(cfg *config.Config, next http.Handler) http.Handler {
 		} else {
 			w.Header().Set("Access-Control-Allow-Origin", "*")
 		}
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 
 		if r.Method == "OPTIONS" {
@@ -64,8 +65,14 @@ func main() {
 
 	fmt.Println("Conexão com o banco de dados estabelecida com sucesso!")
 
+	accSvc, err := accounts.NewService(cfg)
+	if err != nil {
+		log.Fatalf("Falha ao inicializar gestão de usuários: %v", err)
+	}
+	_ = accSvc.EnsureHtpasswdFile()
+
 	// Configura o roteador principal usando a biblioteca padrão net/http
-	router := handler.NewRouter(cfg)
+	router := handler.NewRouter(cfg, accSvc)
 	chain := auth.NewMiddleware(cfg, router)
 	chain = logging.AccessMiddleware(appLog)(chain)
 	chain = corsMiddleware(cfg, chain)

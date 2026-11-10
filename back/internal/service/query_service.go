@@ -49,13 +49,11 @@ func buildTree(currentDir string, currentRelPath string) ([]domain.TreeNode, err
 				return nil, err
 			}
 
-			if len(children) > 0 {
-				nodes = append(nodes, domain.TreeNode{
-					Name:     entry.Name(),
-					Type:     "folder",
-					Children: children,
-				})
-			}
+			nodes = append(nodes, domain.TreeNode{
+				Name:     entry.Name(),
+				Type:     "folder",
+				Children: children,
+			})
 		} else if strings.HasSuffix(entry.Name(), ".sql") {
 			moduleName := strings.TrimSuffix(entry.Name(), ".sql")
 			modRel := moduleName

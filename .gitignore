@@ -61,6 +61,7 @@ logs/
 # HTTP Basic do Nginx (front)
 front/secrets/htpasswd
 /htpasswd
+/administrators
 
 
 

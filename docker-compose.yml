@@ -72,9 +72,15 @@ services:
       - LOG_MAX_FILES=${LOG_MAX_FILES:-10}
       - LOG_TO_STDOUT=${LOG_TO_STDOUT:-true}
       - LOG_REQUEST_BODY_MAX_BYTES=${LOG_REQUEST_BODY_MAX_BYTES:-4096}
+      # Sempre os caminhos dentro do container (volume → host via NGINX_BASIC_AUTH_HTPASSWD_HOST_PATH / ADMINISTRATORS_HOST_PATH)
+      - HTPASSWD_PATH=/app/secrets/htpasswd
+      - ADMINISTRATORS=${ADMINISTRATORS:-}
+      - ADMINISTRATORS_FILE=/app/secrets/administrators
     volumes:
       - ./back/queries:/app/queries
       - ${LOG_HOST_PATH:-./logs}:/app/logs
+      - ${NGINX_BASIC_AUTH_HTPASSWD_HOST_PATH:-./front/secrets/htpasswd}:/app/secrets/htpasswd
+      - ${ADMINISTRATORS_HOST_PATH:-./administrators}:/app/secrets/administrators
 
   #---------------------------------------------------------
   # Frontend Web (NGINX)

@@ -54,6 +54,10 @@
     </main>
 
     <script>
+        try {
+            sessionStorage.removeItem('sqlformys_logged_out');
+        } catch (e) { /* ignore */ }
+
         document.getElementById('btn-retry-auth').addEventListener('click', function () {
             window.location.href = '/';
         });

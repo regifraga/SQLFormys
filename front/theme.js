@@ -27,6 +27,7 @@ function applyTheme(theme) {
     document.documentElement.setAttribute('data-theme', next);
     localStorage.setItem(THEME_STORAGE_KEY, next);
     updateThemeToggleUI(next);
+    window.dispatchEvent(new CustomEvent('sqlformys-theme-change', { detail: { theme: next } }));
 }
 
 function updateThemeToggleUI(theme) {

@@ -52,6 +52,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     await versionPromise;
 
     if (!authResult.ok) {
+        if (authResult.loggedOut) {
+            return;
+        }
         if (!authResult.unauthorized) {
             showToast('Autenticação', 'Não foi possível verificar a identidade de rede.', 'error');
         }
@@ -243,6 +246,9 @@ async function loadAppVersion() {
 
 async function loadProjects() {
     try {
+        if (typeof isAdminUser === 'function' && isAdminUser() && typeof fetchAdminUsers === 'function') {
+            await fetchAdminUsers(API_BASE_URL);
+        }
         const response = await apiFetch(`${API_BASE_URL}/projects`);
         if (!response.ok) throw new Error('Falha ao carregar estrutura de projetos');
         
@@ -251,6 +257,9 @@ async function loadProjects() {
         const productName = (data && !Array.isArray(data)) ? data.productName : "";
         
         allProjects = projects;
+        if (typeof renderAdminUsersPanel === 'function') {
+            renderAdminUsersPanel(API_BASE_URL);
+        }
         renderTree(projects, treeNavigation);
         renderFavorites();
 
@@ -269,6 +278,10 @@ async function loadProjects() {
 }
 
 async function loadFormFields(queryPath, moduleTitle) {
+  if (typeof closeSqlEditor === 'function') {
+        closeSqlEditor();
+    }
+    document.getElementById('sql-editor-container')?.classList.add('hidden');
     try {
         const response = await apiFetch(`${API_BASE_URL}/queries/${queryPath}`);
         if (!response.ok) throw new Error('Falha ao carregar campos do formulário');
@@ -388,8 +401,20 @@ function treeBadgeHue(name) {
 function renderTree(nodes, container, isSearching = false) {
     container.innerHTML = ''; // Limpar loading state
 
+    if (typeof isAdminUser === 'function' && isAdminUser()) {
+        const projectsHead = document.createElement('div');
+        projectsHead.className = 'tree-projects-section';
+        projectsHead.innerHTML = '<span class="tree-projects-section-title">Projetos</span>';
+        container.appendChild(projectsHead);
+        if (typeof appendTreeAdminRootBar === 'function') {
+            appendTreeAdminRootBar(container, API_BASE_URL);
+        }
+    }
+
     if (!nodes || nodes.length === 0) {
-        container.innerHTML = '<div class="loading-state">Nenhum projeto encontrado.</div>';
+        if (container.children.length === 0) {
+            container.innerHTML = '<div class="loading-state">Nenhum projeto encontrado.</div>';
+        }
         return;
     }
 
@@ -397,7 +422,7 @@ function renderTree(nodes, container, isSearching = false) {
     treeContainer.className = 'tree-root';
 
     // Função auxiliar recursiva
-    function buildSubTree(nodeList, parentElement, level = 0) {
+    function buildSubTree(nodeList, parentElement, level = 0, parentRelPath = '') {
         nodeList.forEach(node => {
             const itemContainer = document.createElement('div');
             itemContainer.className = 'tree-node-container';
@@ -435,8 +460,13 @@ function renderTree(nodes, container, isSearching = false) {
                     folderHeader.classList.add('active');
                 }
 
+                const folderRel = parentRelPath ? `${parentRelPath}/${node.name}` : node.name;
+                if (typeof attachFolderAdminActions === 'function') {
+                    attachFolderAdminActions(folderHeader, folderRel, node.name, API_BASE_URL);
+                }
+
                 if (node.children && node.children.length > 0) {
-                    buildSubTree(node.children, childrenContainer, level + 1);
+                    buildSubTree(node.children, childrenContainer, level + 1, folderRel);
                 }
 
                 folderHeader.addEventListener('click', () => {
@@ -491,11 +521,17 @@ function renderTree(nodes, container, isSearching = false) {
                     </button>
                 `;
 
+                if (typeof attachModuleEditAction === 'function') {
+                    attachModuleEditAction(moduleLink, node.path, API_BASE_URL);
+                }
+
                 moduleLink.addEventListener('click', (e) => {
-                    if (e.target.closest('.favorite-btn')) {
+                    if (e.target.closest('.favorite-btn') || e.target.closest('.tree-icon-btn')) {
                         e.preventDefault();
                         e.stopPropagation();
-                        toggleFavorite(node.path);
+                        if (e.target.closest('.favorite-btn')) {
+                            toggleFavorite(node.path);
+                        }
                         return;
                     }
                     e.preventDefault();
@@ -510,7 +546,7 @@ function renderTree(nodes, container, isSearching = false) {
         });
     }
 
-    buildSubTree(nodes, treeContainer, 0);
+    buildSubTree(nodes, treeContainer, 0, '');
     container.appendChild(treeContainer);
 }
 
@@ -2476,11 +2512,21 @@ function filterTree(nodes, searchTerm) {
 }
 
 /* ==========================================================================
-   Gerenciamento de Favoritos (LocalStorage)
+   Gerenciamento de Favoritos (LocalStorage, por usuário)
    ========================================================================== */
+function favoritesStorageKey() {
+    const id = typeof getAuthIdentity === 'function' ? getAuthIdentity() : null;
+    const username = id && id.username ? String(id.username).trim() : '';
+    if (!username) {
+        return 'sqlformys_favorites';
+    }
+    const safe = username.toLowerCase().replace(/[^a-z0-9@._\\-]/gi, '_');
+    return `sqlformys_favorites:${safe}`;
+}
+
 function getFavorites() {
     try {
-        const stored = localStorage.getItem('sqlformys_favorites');
+        const stored = localStorage.getItem(favoritesStorageKey());
         return stored ? JSON.parse(stored) : [];
     } catch (e) {
         console.error('Erro ao ler favoritos do LocalStorage', e);
@@ -2490,7 +2536,7 @@ function getFavorites() {
 
 function saveFavorites(favorites) {
     try {
-        localStorage.setItem('sqlformys_favorites', JSON.stringify(favorites));
+        localStorage.setItem(favoritesStorageKey(), JSON.stringify(favorites));
     } catch (e) {
         console.error('Erro ao salvar favoritos no LocalStorage', e);
     }

@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Encerrando sessão — SQLFormys</title>
+    <link rel="stylesheet" href="error.css">
+</head>
+<body class="error-page-body">
+    <main class="error-page-main">
+        <p class="error-page-text" role="status">Encerrando sessão…</p>
+    </main>
+    <script>
+        (function () {
+            try {
+                sessionStorage.removeItem('sqlformys_auth_identity');
+                sessionStorage.setItem('sqlformys_logged_out', '1');
+            } catch (e) { /* ignore */ }
+
+            function finish() {
+                window.location.replace('/');
+            }
+
+            try {
+                var xhr = new XMLHttpRequest();
+                xhr.open('GET', '/api/auth/me?logout=' + Date.now(), false, 'sqlformys-logout', String(Date.now()));
+                xhr.send();
+            } catch (e) { /* ignore */ }
+
+            setTimeout(finish, 80);
+        })();
+    </script>
+</body>
+</html>

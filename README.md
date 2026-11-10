@@ -132,6 +132,9 @@ When front and API run in containers on a Linux server **without** Kerberos/AD, 
 | `NGINX_BASIC_AUTH_REALM` | Text shown in the browser login dialog |
 | `NGINX_BASIC_AUTH_HTPASSWD_HOST_PATH` | Path on the **host** to the `htpasswd` file (default `./front/secrets/htpasswd`) |
 | `NGINX_BASIC_AUTH_HTPASSWD_FILE` | Path **inside** the `front` container (default `/etc/nginx/secrets/htpasswd`) |
+| `HTPASSWD_PATH` | Path **inside the API container** to the same htpasswd file (read/write for password changes and user admin) |
+| `ADMINISTRATORS` | Comma-separated usernames seeded as admins on first run |
+| `ADMINISTRATORS_FILE` | Host file listing current admins (default: `administrators` next to htpasswd) |
 
 **1. Create credentials** (on the host):
 
@@ -154,9 +157,11 @@ NGINX_BASIC_AUTH_REALM=SQLFormys
 # NGINX_BASIC_AUTH_HTPASSWD_HOST_PATH=/var/lib/sqlformys/htpasswd
 ```
 
-**3. Start with Docker Compose.** The `front` service bind-mounts the host `htpasswd` file read-only. The browser asks for credentials before loading the app or calling `/api/*`.
+**3. Start with Docker Compose.** The `front` service bind-mounts the host `htpasswd` file read-only; the `api` service mounts the **same** file read/write for in-app password changes and administrator user management. Create an empty administrators file on the host if needed, e.g. `touch ./administrators && chmod 600 ./administrators`, and set `ADMINISTRATORS_HOST_PATH` in `.env` when using a custom path.
 
-**Add users later:** run `htpasswd -b <host-path> newuser` on the server. Nginx re-reads the file per request — no container restart required.
+**Add users later:** administrators can use **Usuários** in the sidebar UI, or run `htpasswd -b <host-path> newuser` on the server. Nginx re-reads the file per request — no container restart required.
+
+**In the UI:** logged-in users see a profile badge beside the theme toggle (user icon vs shield for administrators). Everyone with Basic Auth configured can **Trocar senha** from that menu (current password required; strong password rules enforced). Administrators additionally manage users, edit `.sql` modules (CodeMirror), and create or rename folders under `back/queries`.
 
 Do **not** enable Kerberos (`AUTH_ENABLED=true`) and Basic Auth at the same time: both use the `Authorization` header and will conflict.
 

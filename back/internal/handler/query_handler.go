@@ -18,10 +18,10 @@ type QueryHandler struct {
 	cfg *config.Config
 }
 
-func NewQueryHandler(svc domain.DynamicQueryService) *QueryHandler {
+func NewQueryHandler(svc domain.DynamicQueryService, cfg *config.Config) *QueryHandler {
 	return &QueryHandler{
 		svc: svc,
-		cfg: config.Load(),
+		cfg: cfg,
 	}
 }
 

@@ -3,6 +3,7 @@ package config
 import (
 	"log"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 )
@@ -19,6 +20,10 @@ type Config struct {
 	AuthDevUser     string
 	AuthKrbKeytab   string
 	AuthKrbSPN      string
+
+	HtpasswdPath        string
+	AdministratorsFile    string
+	AdministratorsSeed    []string
 
 	LogEnabled              bool
 	LogDir                  string
@@ -71,6 +76,13 @@ func Load() *Config {
 	authKrbKeytab := os.Getenv("AUTH_KRB_KEYTAB")
 	authKrbSPN := os.Getenv("AUTH_KRB_SPN")
 
+	htpasswdPath := strings.TrimSpace(os.Getenv("HTPASSWD_PATH"))
+	administratorsFile := strings.TrimSpace(os.Getenv("ADMINISTRATORS_FILE"))
+	administratorsSeed := parseCSVEnv(os.Getenv("ADMINISTRATORS"))
+	if administratorsFile == "" && htpasswdPath != "" {
+		administratorsFile = filepath.Join(filepath.Dir(htpasswdPath), "administrators")
+	}
+
 	logEnabled := parseBoolEnv(os.Getenv("LOG_ENABLED"), true)
 	logDir := os.Getenv("LOG_DIR")
 	if logDir == "" {
@@ -119,6 +131,10 @@ func Load() *Config {
 		AuthKrbKeytab:   authKrbKeytab,
 		AuthKrbSPN:      authKrbSPN,
 
+		HtpasswdPath:         htpasswdPath,
+		AdministratorsFile:   administratorsFile,
+		AdministratorsSeed:   administratorsSeed,
+
 		LogEnabled:             logEnabled,
 		LogDir:                 logDir,
 		LogFile:                logFile,
@@ -140,6 +156,22 @@ func parseIntEnv(raw string, defaultVal int) int {
 		return defaultVal
 	}
 	return n
+}
+
+func parseCSVEnv(raw string) []string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	parts := strings.Split(raw, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 func parseBoolEnv(raw string, defaultVal bool) bool {
