@@ -235,8 +235,16 @@ Basic shape:
 | `MULTI(...)` or `MULTIPLE(...)` | Multi-select dropdown | `@?#SG_UF:MULTI(SP=São Paulo,RJ=Rio de Janeiro):VARCHAR:80:=:States:SP,RJ` |
 | `LOOKUP(Name)` | Single-select filled by a named query in the same `.sql` file | `@?CD_USUARIO:LOOKUP(NomeDoLookUp):VARCHAR:10:=:User` |
 | `LOOKUP_MULTI(Name)` | Multi-select filled by a named query | `@?#SG_UF:LOOKUP_MULTI(UFsAtendimento):VARCHAR:80:=:States` |
+| `CONTEXT(Key)` | Hidden field filled from the authenticated session (not shown in the form) | `@?NM_USUARIO:CONTEXT(USER_NAME):VARCHAR:50:=:` |
 
-`SINGLE` / `MULTI` / `LOOKUP` / `LOOKUP_MULTI` need an extra SQL type after the parentheses (`VARCHAR`, `INT`, …). That is the type sent to the database.
+`SINGLE` / `MULTI` / `LOOKUP` / `LOOKUP_MULTI` / `CONTEXT` need an extra SQL type after the parentheses (`VARCHAR`, `INT`, …). That is the type sent to the database.
+
+**Context keys:** The API overwrites any client-supplied value for these fields on execute and lookup.
+
+| Key | Value |
+|---|---|
+| `USER_NAME` | Logged-in username (login) |
+| `USER_TYPE` | `Administrator` if the user is an admin, otherwise `Standard` |
 
 Option and multi-default separators: `,` `;` or `|`.
 

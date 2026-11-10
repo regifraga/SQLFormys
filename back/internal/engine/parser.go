@@ -53,7 +53,8 @@ func isChoiceFieldLine(line string) bool {
 		strings.Contains(typeUpper, ":MULTIPLE(") ||
 		strings.Contains(typeUpper, ":LOOKUP(") ||
 		strings.Contains(typeUpper, ":LOOKUP_MULTI(") ||
-		strings.Contains(typeUpper, ":MULTILOOKUP(")
+		strings.Contains(typeUpper, ":MULTILOOKUP(") ||
+		strings.Contains(typeUpper, ":CONTEXT(")
 }
 
 // StripLookupBlocks removes --<LOOKUP ...> ... --</LOOKUP> sections so they are
@@ -242,6 +243,10 @@ func ParseMetadata(sqlContent string) (*SQLParser, error) {
 			DefaultValue: defaultValue,
 			Information:  information,
 			DbType:       dbTypeVal,
+		}
+		if key, ok := ContextKeyFromFieldType(typePart); ok {
+			field.ContextKey = key
+			field.Hidden = true
 		}
 		parser.Fields = append(parser.Fields, field)
 	}

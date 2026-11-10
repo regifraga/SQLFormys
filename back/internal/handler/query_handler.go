@@ -8,20 +8,24 @@ import (
 	"net/http"
 	"strings"
 
+	"sqlformys/internal/accounts"
+	"sqlformys/internal/auth"
 	"sqlformys/internal/config"
 	"sqlformys/internal/domain"
 	"sqlformys/internal/engine"
 )
 
 type QueryHandler struct {
-	svc domain.DynamicQueryService
-	cfg *config.Config
+	svc      domain.DynamicQueryService
+	cfg      *config.Config
+	accounts *accounts.Service
 }
 
-func NewQueryHandler(svc domain.DynamicQueryService, cfg *config.Config) *QueryHandler {
+func NewQueryHandler(svc domain.DynamicQueryService, cfg *config.Config, acc *accounts.Service) *QueryHandler {
 	return &QueryHandler{
-		svc: svc,
-		cfg: cfg,
+		svc:      svc,
+		cfg:      cfg,
+		accounts: acc,
 	}
 }
 
@@ -90,6 +94,12 @@ func (h *QueryHandler) ExecuteQuery(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	if err := h.applyContextPayload(basePath, filepathParam, payload, r); err != nil {
+		log.Printf("ERROR: Falha ao aplicar contexto em ExecuteQuery para %s: %v", filepathParam, err)
+		respondWithError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
 	results, finalSQL, err := h.svc.ExecuteQuery(r.Context(), basePath, filepathParam, payload, h.cfg.DBDriver, h.cfg.DBDsn)
 	if err != nil {
 		log.Printf("ERROR: Falha na execução da query %s | Driver: %s | Payload: %+v | Erro: %v | SQL Gerado: %s",
@@ -104,6 +114,25 @@ func (h *QueryHandler) ExecuteQuery(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(results)
+}
+
+func (h *QueryHandler) applyContextPayload(basePath, queryPath string, payload map[string]interface{}, r *http.Request) error {
+	if payload == nil {
+		return nil
+	}
+	metadata, err := h.svc.GetMetadata(basePath, queryPath)
+	if err != nil {
+		return err
+	}
+	sess := engine.ContextSession{}
+	if id, ok := auth.IdentityFromRequest(r); ok {
+		sess.Username = id.Username
+		if h.accounts != nil && id.Username != "" {
+			sess.IsAdmin = h.accounts.IsAdmin(id.Username)
+		}
+	}
+	engine.ApplyContextValues(metadata.Fields, payload, sess)
+	return nil
 }
 
 func (h *QueryHandler) ExecuteLookup(w http.ResponseWriter, r *http.Request) {
@@ -130,6 +159,12 @@ func (h *QueryHandler) ExecuteLookup(w http.ResponseWriter, r *http.Request) {
 			respondWithError(w, http.StatusBadRequest, "Formato de payload inválido, esperado JSON Object")
 			return
 		}
+	}
+
+	if err := h.applyContextPayload(basePath, filepathParam, payload, r); err != nil {
+		log.Printf("ERROR: Falha ao aplicar contexto em ExecuteLookup para %s: %v", filepathParam, err)
+		respondWithError(w, http.StatusInternalServerError, err.Error())
+		return
 	}
 
 	results, finalSQL, err := h.svc.ExecuteLookup(r.Context(), basePath, filepathParam, lookupName, lookupField, payload, h.cfg.DBDriver, h.cfg.DBDsn)

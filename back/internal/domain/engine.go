@@ -12,8 +12,10 @@ type Field struct {
 	DefaultValue string `json:"defaultValue"`
 	Information  string `json:"information"`
 	DependsOn    []string `json:"dependsOn,omitempty"`
-	Operator     string `json:"-"` // Internal use for building query, typically '='
-	DbType       string `json:"-"` // Internal use for database type (e.g. for SINGLE)
+	ContextKey   string   `json:"contextKey,omitempty"`
+	Hidden       bool     `json:"hidden,omitempty"`
+	Operator     string   `json:"-"` // Internal use for building query, typically '='
+	DbType       string   `json:"-"` // Internal use for database type (e.g. for SINGLE)
 }
 
 // TreeNode represents a hierarchical node (folder or module) in the queries directory tree

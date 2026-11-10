@@ -626,6 +626,29 @@ function isLookupMultiType(type) {
     return /^(LOOKUP_MULTI|MULTILOOKUP)\(/i.test(type || '');
 }
 
+const CONTEXT_VALUE_RESOLVERS = {
+    USER_NAME: () => {
+        const identity = typeof getAuthIdentity === 'function' ? getAuthIdentity() : null;
+        return identity?.username || '';
+    },
+    USER_TYPE: () => {
+        const identity = typeof getAuthIdentity === 'function' ? getAuthIdentity() : null;
+        return identity?.isAdmin ? 'Administrator' : 'Standard';
+    }
+};
+
+function isContextField(field) {
+    if (!field) return false;
+    if (field.hidden) return true;
+    return /^CONTEXT\(/i.test(field.type || '');
+}
+
+function resolveContextFieldValue(contextKey) {
+    const key = String(contextKey || '').trim().toUpperCase();
+    const resolver = CONTEXT_VALUE_RESOLVERS[key];
+    return resolver ? resolver() : '';
+}
+
 function formatDateFieldValue(field, value) {
     if (!value || !field) return value;
     const typeUpper = String(field.type || '').toUpperCase();
@@ -676,6 +699,14 @@ function collectFormValues(includeEmpty = false) {
             payload[input.name] = (input.type === 'date' && meta)
                 ? formatDateFieldValue(meta, input.value)
                 : input.value;
+        }
+    });
+
+    currentFields.forEach(field => {
+        if (!isContextField(field)) return;
+        const val = resolveContextFieldValue(field.contextKey);
+        if (val !== '' || field.required || includeEmpty) {
+            payload[field.field] = val;
         }
     });
 
@@ -1502,12 +1533,20 @@ function renderForm(queryPath, moduleTitle, fields, description = '', executeMod
 
     btnExecute.disabled = false;
 
+    const visibleFields = (fields || []).filter(field => !isContextField(field));
     if (!fields || fields.length === 0) {
         dynamicForm.innerHTML = '<p class="form-text">Nenhum campo retornado pela API para este módulo.</p>';
         return;
     }
+    if (visibleFields.length === 0) {
+        dynamicForm.innerHTML = '<p class="form-text">Este módulo não possui campos editáveis.</p>';
+        return;
+    }
 
     fields.forEach(field => {
+        if (isContextField(field)) {
+            return;
+        }
         const group = document.createElement('div');
         group.className = 'form-group';
 

@@ -20,7 +20,7 @@ func NewRouter(cfg *config.Config, acc *accounts.Service) *http.ServeMux {
 	// Inicializa o Motor de Queries Dinâmicas
 	connector := database.NewConnector()
 	querySvc := service.NewDynamicQueryService(connector)
-	queryHandler := NewQueryHandler(querySvc, cfg)
+	queryHandler := NewQueryHandler(querySvc, cfg, acc)
 
 	mux.HandleFunc("GET /api/auth/me", authHandler.Me)
 	mux.HandleFunc("POST /api/auth/password", authHandler.ChangePassword)
