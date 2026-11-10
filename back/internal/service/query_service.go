@@ -97,6 +97,7 @@ func (s *queryService) GetMetadata(basePath, queryPath string) (domain.MetadataR
 		Server:      parser.Server,
 		Description: parser.Description,
 		ExecuteMode: parser.ExecuteMode,
+		ResultType:  parser.ResultType,
 		Timeout:     parser.Timeout,
 		Fields:      fields,
 		Lookups:     lookupsMeta,
@@ -259,7 +260,8 @@ func (s *queryService) runPreparedSQL(ctx context.Context, parser *engine.SQLPar
 	}
 
 	return domain.QueryResult{
-		Columns: columns,
-		Rows:    results,
+		Columns:    columns,
+		Rows:       results,
+		ResultType: parser.ResultType,
 	}, finalSQL, nil
 }

@@ -15,6 +15,7 @@ type SQLParser struct {
 	Server      string
 	Description string
 	ExecuteMode string
+	ResultType  string
 	Timeout     int
 	Fields      []domain.Field
 	Lookups     map[string]string
@@ -32,6 +33,9 @@ var (
 
 	// Matches --EXECUTE_MODE=...
 	executeModeRegex = regexp.MustCompile(`(?m)^--EXECUTE_MODE=(.*)$`)
+
+	// Matches --RESULT_TYPE=...
+	resultTypeRegex = regexp.MustCompile(`(?m)^--RESULT_TYPE=(.*)$`)
 
 	// Matches the properties block, including multiline content
 	propertiesRegex = regexp.MustCompile(`(?si)--\s*<PROPERTIES>\s*\r?\n(.*?)\r?\n\s*--\s*</PROPERTIES>\s*`)
@@ -100,6 +104,27 @@ func (p *SQLParser) LookupSQL(name string) (string, bool) {
 	return "", false
 }
 
+var validResultTypes = map[string]string{
+	"GRID":     "GRID",
+	"TEXT":     "TEXT",
+	"HTML":     "HTML",
+	"MARKDOWN": "MARKDOWN",
+	"MERMAID":  "MERMAID",
+	"DOCUMENT": "DOCUMENT",
+}
+
+// NormalizeResultType maps the --RESULT_TYPE tag to a supported value (default GRID).
+func NormalizeResultType(raw string) string {
+	if raw == "" {
+		return "GRID"
+	}
+	upper := strings.ToUpper(strings.TrimSpace(raw))
+	if v, ok := validResultTypes[upper]; ok {
+		return v
+	}
+	return "GRID"
+}
+
 func splitMetadataLine(line string, maxSplits int) []string {
 	parts := make([]string, 0, maxSplits+1)
 	remaining := line
@@ -122,6 +147,7 @@ func splitMetadataLine(line string, maxSplits int) []string {
 func ParseMetadata(sqlContent string) (*SQLParser, error) {
 	parser := &SQLParser{
 		OriginalSQL: sqlContent,
+		ResultType:  "GRID",
 		Fields:      make([]domain.Field, 0),
 		Lookups:     make(map[string]string),
 	}
@@ -160,6 +186,12 @@ func ParseMetadata(sqlContent string) (*SQLParser, error) {
 	executeModeMatch := executeModeRegex.FindStringSubmatch(sqlContent)
 	if len(executeModeMatch) > 1 {
 		parser.ExecuteMode = strings.TrimSpace(executeModeMatch[1])
+	}
+
+	// Extract ResultType if present
+	resultTypeMatch := resultTypeRegex.FindStringSubmatch(sqlContent)
+	if len(resultTypeMatch) > 1 {
+		parser.ResultType = NormalizeResultType(resultTypeMatch[1])
 	}
 
 	// Extract Properties block

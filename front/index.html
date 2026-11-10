@@ -12,6 +12,9 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/hint/show-hint.min.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/dracula.min.css">
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.7/dist/purify.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@11.4.0/dist/mermaid.min.js"></script>
     <script>
         (function () {
             var key = 'sqlformys_theme';
@@ -198,11 +201,12 @@
                             </button>
                         </div>
                     </div>
-                    <div class="card-body" style="overflow-x: auto; padding: 0;">
+                    <div class="card-body result-card-body" style="overflow-x: auto; padding: 0;">
                         <table class="data-table" id="result-table">
                             <thead id="result-thead"></thead>
                             <tbody id="result-tbody"></tbody>
                         </table>
+                        <div id="result-document" class="result-document hidden"></div>
                         <div id="grid-empty-state" class="hidden" style="padding: 24px; text-align: center; color: var(--text-secondary);">
                             Nenhum registro encontrado.
                         </div>

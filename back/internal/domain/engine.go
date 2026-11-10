@@ -31,6 +31,7 @@ type MetadataResponse struct {
 	Server      string                    `json:"server"`
 	Description string                    `json:"description"`
 	ExecuteMode string                    `json:"executeMode"`
+	ResultType  string                    `json:"resultType"`
 	Timeout     int                       `json:"timeout"`
 	Fields      []Field                   `json:"fields"`
 	Lookups     map[string]LookupMetadata `json:"lookups,omitempty"`
@@ -43,8 +44,9 @@ type LookupMetadata struct {
 
 // QueryResult represents the result of a dynamic query execution, preserving column order.
 type QueryResult struct {
-	Columns []string                 `json:"columns"`
-	Rows    []map[string]interface{} `json:"rows"`
+	Columns    []string                 `json:"columns"`
+	Rows       []map[string]interface{} `json:"rows"`
+	ResultType string                   `json:"resultType,omitempty"`
 }
 
 // LookupOption is a dropdown item produced by a named LOOKUP query.

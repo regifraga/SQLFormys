@@ -30,6 +30,8 @@ const gridActions = document.querySelector('.grid-actions');
 const gridSearchContainer = document.getElementById('grid-search-container');
 const gridSearchInput = document.getElementById('search-grid');
 const clearGridSearchBtn = document.getElementById('clear-grid-search');
+const resultDocument = document.getElementById('result-document');
+const resultCardBody = document.querySelector('.result-card-body');
 
 // Estado atual
 let currentQueryPath = null;
@@ -39,6 +41,8 @@ let currentQueryResult = null;
 let gridSortState = { column: null, direction: 'asc' };
 let gridColumnTypes = {};
 let currentQueryLookups = {};
+let currentResultType = 'GRID';
+let mermaidLibInitialized = false;
 
 /* ==========================================================================
    Inicialização
@@ -292,12 +296,14 @@ async function loadFormFields(queryPath, moduleTitle) {
         const executeMode = data.executeMode || '';
         const server = data.server || '';
         const timeout = data.timeout || 60;
+        currentResultType = String(data.resultType || 'GRID').toUpperCase();
         
         currentQueryPath = queryPath;
         currentFields = fields;
         currentQueryLookups = data.lookups || {};
 
-        renderForm(queryPath, moduleTitle, fields, description, executeMode, server, timeout);
+        resetResultDocumentView();
+        renderForm(queryPath, moduleTitle, fields, description, executeMode, server, timeout, currentResultType);
         
         // Esconder empty state e grid antiga, mostrar form
         emptyState.classList.add('hidden');
@@ -362,8 +368,7 @@ async function executeQuery(payload) {
         let msg = result.message || 'Operação realizada com sucesso.';
         showToast('Sucesso', msg, 'success');
 
-        // Mostrar Grid com resultados
-        renderGrid(result, duration);
+        renderQueryResult(result, duration);
 
     } catch (error) {
         console.error(error);
@@ -1456,7 +1461,7 @@ function enhanceCustomSelect(select) {
 /* ==========================================================================
    Renderização do Formulário Dinâmico
    ========================================================================== */
-function renderForm(queryPath, moduleTitle, fields, description = '', executeMode = '', server = '', timeout = 60) {
+function renderForm(queryPath, moduleTitle, fields, description = '', executeMode = '', server = '', timeout = 60, resultType = 'GRID') {
     // Atualizar títulos
     formTitle.innerText = moduleTitle;
     formSubtitle.innerText = queryPath.replace(/\//g, ' > ');
@@ -1518,6 +1523,21 @@ function renderForm(queryPath, moduleTitle, fields, description = '', executeMod
                 <span style="vertical-align: middle;">Timeout: ${timeout}s</span>
             `;
             metaContainer.appendChild(timeoutBadge);
+            hasMeta = true;
+        }
+
+        const normalizedResultType = String(resultType || 'GRID').toUpperCase();
+        if (normalizedResultType && normalizedResultType !== 'GRID') {
+            const resultBadge = document.createElement('span');
+            resultBadge.className = 'meta-badge result-type';
+            resultBadge.innerHTML = `
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 4px; vertical-align: middle;">
+                    <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                    <line x1="3" y1="9" x2="21" y2="9"></line>
+                </svg>
+                <span style="vertical-align: middle;">Resultado: ${normalizedResultType}</span>
+            `;
+            metaContainer.appendChild(resultBadge);
             hasMeta = true;
         }
 
@@ -1785,6 +1805,8 @@ function handleCancel() {
     currentFields = [];
     currentQueryLookups = {};
     currentQueryResult = null;
+    currentResultType = 'GRID';
+    resetResultDocumentView();
     if (gridActions) {
         gridActions.classList.add('hidden');
     }
@@ -2121,25 +2143,252 @@ function refreshGridTable() {
     }
 }
 
+function resetResultDocumentView() {
+    if (resultDocument) {
+        resultDocument.innerHTML = '';
+        resultDocument.classList.add('hidden');
+        resultDocument.className = 'result-document hidden';
+    }
+    if (resultCardBody) {
+        resultCardBody.classList.remove('result-document-mode');
+    }
+}
+
+function resolveResultType(resultData, fallback) {
+    const fromResult = resultData && resultData.resultType;
+    if (fromResult) {
+        return String(fromResult).toUpperCase();
+    }
+    if (fallback) {
+        return String(fallback).toUpperCase();
+    }
+    return 'GRID';
+}
+
+function joinResultColumnContent(resultData) {
+    if (!resultData || !resultData.rows || resultData.rows.length === 0) {
+        return '';
+    }
+    let columnName = resultData.columns && resultData.columns.length > 0
+        ? resultData.columns[0]
+        : null;
+    if (!columnName) {
+        const keys = Object.keys(resultData.rows[0] || {});
+        if (keys.length === 0) {
+            return '';
+        }
+        columnName = keys[0];
+    }
+    return resultData.rows
+        .map((row) => formatGridCellForDisplay(row[columnName]))
+        .join('\n');
+}
+
+function setExecutionTimeBadge(duration, rowCount) {
+    const gridTitle = document.getElementById('grid-title');
+    const executionTimeEl = document.getElementById('execution-time');
+
+    if (gridTitle) {
+        if (rowCount != null && rowCount > 0) {
+            gridTitle.innerText = `Resultados (${rowCount.toLocaleString('pt-BR')})`;
+        } else {
+            gridTitle.innerText = 'Resultados';
+        }
+    }
+
+    if (executionTimeEl && duration !== null) {
+        let timeStr = '';
+        if (duration < 1000) {
+            timeStr = `${duration.toFixed(0)} ms`;
+        } else {
+            timeStr = `${(duration / 1000).toFixed(2)} s`;
+        }
+        executionTimeEl.innerHTML = `
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="10"></circle>
+                <polyline points="12 6 12 12 16 14"></polyline>
+            </svg>
+            Tempo de execução: ${timeStr}
+        `;
+        executionTimeEl.classList.remove('hidden');
+    } else if (executionTimeEl) {
+        executionTimeEl.innerHTML = '';
+        executionTimeEl.classList.add('hidden');
+    }
+}
+
+function getMermaidTheme() {
+    return document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'default';
+}
+
+async function runMermaidIn(container) {
+    if (typeof mermaid === 'undefined') {
+        container.insertAdjacentHTML('beforeend', '<p class="form-text">Biblioteca Mermaid não carregada.</p>');
+        return;
+    }
+    const theme = getMermaidTheme();
+    const config = { startOnLoad: false, theme, securityLevel: 'loose' };
+    if (!mermaidLibInitialized) {
+        mermaid.initialize(config);
+        mermaidLibInitialized = true;
+    } else {
+        mermaid.initialize(config);
+    }
+    const nodes = container.querySelectorAll('.mermaid');
+    if (nodes.length === 0) {
+        return;
+    }
+    try {
+        await mermaid.run({ nodes });
+    } catch (err) {
+        console.error(err);
+        showToast('Aviso', 'Falha ao renderizar diagrama Mermaid.', 'warning');
+    }
+}
+
+function promoteMermaidCodeBlocks(container) {
+    container.querySelectorAll('pre code.language-mermaid').forEach((code) => {
+        const pre = code.parentElement;
+        if (!pre) {
+            return;
+        }
+        const div = document.createElement('div');
+        div.className = 'mermaid';
+        div.textContent = code.textContent;
+        pre.replaceWith(div);
+    });
+}
+
+async function renderMarkdownHtml(container, markdown, className) {
+    if (typeof marked === 'undefined') {
+        container.className = className;
+        container.textContent = markdown;
+        return;
+    }
+    marked.setOptions({ gfm: true });
+    let html = marked.parse(markdown);
+    if (typeof DOMPurify !== 'undefined') {
+        html = DOMPurify.sanitize(html);
+    }
+    container.className = className;
+    container.innerHTML = html;
+}
+
+async function renderMermaidBlock(container, source) {
+    container.innerHTML = '';
+    const div = document.createElement('div');
+    div.className = 'mermaid';
+    div.textContent = source;
+    container.appendChild(div);
+    await runMermaidIn(container);
+}
+
+function renderHtmlResult(container, html) {
+    container.innerHTML = '';
+    const iframe = document.createElement('iframe');
+    iframe.className = 'result-html-frame';
+    iframe.setAttribute('sandbox', 'allow-scripts allow-popups allow-forms');
+    iframe.srcdoc = html;
+    container.appendChild(iframe);
+}
+
+async function renderResultByType(container, type, content) {
+    const upper = String(type).toUpperCase();
+    switch (upper) {
+        case 'TEXT': {
+            container.className = 'result-document result-text';
+            container.textContent = '';
+            const pre = document.createElement('pre');
+            pre.className = 'result-text-pre';
+            pre.textContent = content;
+            container.appendChild(pre);
+            break;
+        }
+        case 'HTML':
+            container.className = 'result-document result-html';
+            renderHtmlResult(container, content);
+            break;
+        case 'MARKDOWN':
+            await renderMarkdownHtml(container, content, 'result-document result-prose');
+            break;
+        case 'MERMAID':
+            container.className = 'result-document result-mermaid';
+            await renderMermaidBlock(container, content);
+            break;
+        case 'DOCUMENT':
+            await renderMarkdownHtml(container, content, 'result-document result-prose');
+            promoteMermaidCodeBlocks(container);
+            await runMermaidIn(container);
+            break;
+        default:
+            container.className = 'result-document result-text';
+            container.textContent = content;
+            break;
+    }
+}
+
+function renderQueryResult(resultData, duration = null) {
+    currentQueryResult = resultData;
+    const resultType = resolveResultType(resultData, currentResultType);
+    gridContainer.classList.remove('hidden');
+
+    if (resultType === 'GRID') {
+        renderGrid(resultData, duration);
+        return;
+    }
+
+    resetResultDocumentView();
+    gridSortState = { column: null, direction: 'asc' };
+    gridColumnTypes = {};
+    resultThead.innerHTML = '';
+    resultTbody.innerHTML = '';
+
+    if (gridActions) {
+        gridActions.classList.add('hidden');
+    }
+    if (gridSearchContainer) {
+        gridSearchContainer.classList.add('hidden');
+    }
+
+    setExecutionTimeBadge(duration, null);
+
+    const content = joinResultColumnContent(resultData);
+
+    if (!content.trim()) {
+        if (resultDocument) {
+            resultDocument.classList.add('hidden');
+        }
+        resultTable.classList.add('hidden');
+        gridEmptyState.classList.remove('hidden');
+        return;
+    }
+
+    resultTable.classList.add('hidden');
+    gridEmptyState.classList.add('hidden');
+
+    if (resultCardBody) {
+        resultCardBody.classList.add('result-document-mode');
+    }
+    if (resultDocument) {
+        resultDocument.classList.remove('hidden');
+        renderResultByType(resultDocument, resultType, content).catch((err) => {
+            console.error(err);
+            showToast('Erro', 'Falha ao renderizar o resultado.', 'error');
+        });
+    }
+}
+
 function renderGrid(resultData, duration = null) {
     currentQueryResult = resultData;
     gridSortState = { column: null, direction: 'asc' };
     gridColumnTypes = {};
     gridContainer.classList.remove('hidden');
+    resetResultDocumentView();
     resultThead.innerHTML = '';
     resultTbody.innerHTML = '';
 
-    const gridTitle = document.getElementById('grid-title');
-    const executionTimeEl = document.getElementById('execution-time');
-
     if (!resultData || !resultData.columns || resultData.columns.length === 0 || !resultData.rows || resultData.rows.length === 0) {
-        if (gridTitle) {
-            gridTitle.innerText = 'Resultados';
-        }
-        if (executionTimeEl) {
-            executionTimeEl.innerHTML = '';
-            executionTimeEl.classList.add('hidden');
-        }
+        setExecutionTimeBadge(duration, null);
         resultTable.classList.add('hidden');
         gridEmptyState.classList.remove('hidden');
         if (gridActions) {
@@ -2165,28 +2414,7 @@ function renderGrid(resultData, duration = null) {
         }
     }
 
-    if (gridTitle) {
-        gridTitle.innerText = `Resultados (${resultData.rows.length.toLocaleString('pt-BR')})`;
-    }
-
-    if (executionTimeEl && duration !== null) {
-        let timeStr = '';
-        if (duration < 1000) {
-            timeStr = `${duration.toFixed(0)} ms`;
-        } else {
-            timeStr = `${(duration / 1000).toFixed(2)} s`;
-        }
-        executionTimeEl.innerHTML = `
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <circle cx="12" cy="12" r="10"></circle>
-                <polyline points="12 6 12 12 16 14"></polyline>
-            </svg>
-            Tempo de execução: ${timeStr}
-        `;
-        executionTimeEl.classList.remove('hidden');
-    } else if (executionTimeEl) {
-        executionTimeEl.classList.add('hidden');
-    }
+    setExecutionTimeBadge(duration, resultData.rows.length);
 
     resultTable.classList.remove('hidden');
     gridEmptyState.classList.add('hidden');

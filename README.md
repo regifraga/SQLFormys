@@ -182,13 +182,47 @@ Place these at the top of the file (outside the properties block):
 | `--SERVER=...` | Database host/connection. If omitted, the API default is used. |
 | `--DESCRIPTION=...` | Short text shown for the module in the UI. |
 | `--EXECUTE_MODE=AUTO` | Run as soon as the form is submitted (no extra confirmation). |
+| `--RESULT_TYPE=...` | How query results are rendered in the UI (see values below). Defaults to **GRID** if missing or invalid. |
 | `--TIMEOUT=10` | Query timeout in seconds. Defaults to **60** if missing or invalid. |
 | `--<PROPERTIES>` / `--</PROPERTIES>` | Block that defines the form fields. |
+
+**`--RESULT_TYPE` values** (case-insensitive):
+
+| Value | Behavior |
+| :--- | :--- |
+| `GRID` | Default tabular grid (filter, sort, CSV/Excel export). |
+| `TEXT` | Plain text (`<pre>`). |
+| `HTML` | Full HTML document inside a sandboxed iframe. |
+| `MARKDOWN` | Markdown rendered as HTML (sanitized). |
+| `MERMAID` | Entire result treated as one Mermaid diagram. |
+| `DOCUMENT` | Markdown plus embedded ` ```mermaid ` fenced blocks (Markdown + Mermaid in one view). |
+
+For types other than `GRID`, the UI concatenates the **first column** of every result row with line breaks into a single document (typical pattern: `SELECT '# Title' AS body` or one HTML/Markdown string per row).
+
+Minimal module with **Markdown and a Mermaid diagram** (`DOCUMENT`). No `--<PROPERTIES>` block is required; `AUTO` runs the query as soon as you open the module. Put the full document in the first result column (here `body`):
+
+````sql
+--DESCRIPTION=Relatório visual
+--RESULT_TYPE=DOCUMENT
+--EXECUTE_MODE=AUTO
+
+SELECT $doc$
+# Resumo
+
+```mermaid
+flowchart LR
+  A[SQL] --> B[UI]
+```
+$doc$ AS body;
+````
+
+On PostgreSQL, dollar-quoting (`$doc$ … $doc$`) keeps backticks and newlines inside the string. On SQL Server, build the same text with `N'…'`, `CHAR(10)`, and concatenation (`+`) instead of `$doc$`.
 
 ```sql
 --SERVER=localhost
 --DESCRIPTION=Search files by name
 --EXECUTE_MODE=AUTO
+--RESULT_TYPE=GRID
 --TIMEOUT=30
 ```
 

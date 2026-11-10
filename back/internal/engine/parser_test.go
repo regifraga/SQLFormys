@@ -7,6 +7,17 @@ import (
 	"sqlformys/internal/domain"
 )
 
+func TestNormalizeResultType(t *testing.T) {
+	assert.Equal(t, "GRID", NormalizeResultType(""))
+	assert.Equal(t, "GRID", NormalizeResultType("grid"))
+	assert.Equal(t, "TEXT", NormalizeResultType("text"))
+	assert.Equal(t, "HTML", NormalizeResultType("HTML"))
+	assert.Equal(t, "MARKDOWN", NormalizeResultType("Markdown"))
+	assert.Equal(t, "MERMAID", NormalizeResultType("mermaid"))
+	assert.Equal(t, "DOCUMENT", NormalizeResultType("document"))
+	assert.Equal(t, "GRID", NormalizeResultType("unknown"))
+}
+
 func TestParseMetadata(t *testing.T) {
 	tests := []struct {
 		name            string
@@ -14,6 +25,7 @@ func TestParseMetadata(t *testing.T) {
 		wantServer      string
 		wantDescription string
 		wantExecuteMode string
+		wantResultType  string
 		wantTimeout     int
 		wantFields      int
 		checkField      func(*testing.T, *SQLParser)
@@ -144,6 +156,31 @@ func TestParseMetadata(t *testing.T) {
 			wantServer:  "localhost",
 			wantTimeout: 60,
 			wantFields:  1,
+		},
+		{
+			name: "Default result type GRID when tag missing",
+			sqlContent: "--SERVER=localhost\n" +
+				"--<PROPERTIES>\n" +
+				"--SELECT @?#DT_INICIAL:DATE:8:=:Data Inicial\n" +
+				"--</PROPERTIES>",
+			wantServer:     "localhost",
+			wantResultType: "GRID",
+			wantFields:     1,
+		},
+		{
+			name: "RESULT_TYPE markdown mixed case",
+			sqlContent: "--RESULT_TYPE=Markdown\nSELECT 1",
+			wantResultType: "MARKDOWN",
+		},
+		{
+			name: "RESULT_TYPE document",
+			sqlContent: "--RESULT_TYPE=DOCUMENT\nSELECT 1",
+			wantResultType: "DOCUMENT",
+		},
+		{
+			name: "Invalid RESULT_TYPE falls back to GRID",
+			sqlContent: "--RESULT_TYPE=PDF\nSELECT 1",
+			wantResultType: "GRID",
 		},
 		{
 			name: "With default value (5th colon)",
@@ -309,6 +346,11 @@ func TestParseMetadata(t *testing.T) {
 			assert.Equal(t, tt.wantServer, parser.Server)
 			assert.Equal(t, tt.wantDescription, parser.Description)
 			assert.Equal(t, tt.wantExecuteMode, parser.ExecuteMode)
+			expectedResultType := tt.wantResultType
+			if expectedResultType == "" {
+				expectedResultType = "GRID"
+			}
+			assert.Equal(t, expectedResultType, parser.ResultType)
 			expectedTimeout := tt.wantTimeout
 			if expectedTimeout == 0 {
 				expectedTimeout = 60
