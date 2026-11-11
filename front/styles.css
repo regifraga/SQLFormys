@@ -7,8 +7,8 @@
 
     /* Cores Primárias (Baseadas no tema LURID da imagem) */
     --primary-color: #3b82f6;
-    /* Azul forte do Header */
     --primary-hover: #2563eb;
+    --header-bg: var(--primary-color);
     --primary-soft: rgba(59, 130, 246, 0.1);
     --primary-soft-strong: rgba(59, 130, 246, 0.08);
     --primary-focus-ring: rgba(59, 130, 246, 0.1);
@@ -61,6 +61,8 @@
 
     --primary-color: #60a5fa;
     --primary-hover: #3b82f6;
+    /* Barra superior: azul profundo alinhado ao fundo slate (evita o azul claro de destaque) */
+    --header-bg: #1e3a8a;
     --primary-soft: rgba(96, 165, 250, 0.16);
     --primary-soft-strong: rgba(96, 165, 250, 0.12);
     --primary-focus-ring: rgba(96, 165, 250, 0.22);
@@ -125,7 +127,7 @@ select {
    ========================================================================== */
 .top-header {
     height: var(--header-height);
-    background-color: var(--primary-color);
+    background-color: var(--header-bg);
     color: var(--text-light);
     display: flex;
     align-items: center;
@@ -1554,12 +1556,19 @@ body.is-resizing .main-content {
 }
 
 .sidebar-favorites {
-    padding: 0 12px 12px;
+    padding: 0 12px 8px;
     border-bottom: 1px solid var(--border-color);
-    margin-bottom: 12px;
+    margin-bottom: 8px;
     display: flex;
     flex-direction: column;
     gap: 4px;
+}
+
+/* Com favoritos visíveis, a borda inferior deles já separa da árvore — evita dupla linha em "Projetos" */
+.sidebar-favorites:not(.hidden) + .sidebar-nav .tree-projects-section {
+    border-top: none;
+    margin-top: 0;
+    padding-top: 4px;
 }
 
 .sidebar-favorites.hidden {
