@@ -7,10 +7,12 @@ import (
 	"strings"
 
 	"sqlformys/internal/domain"
+	"sqlformys/internal/modulekind"
 )
 
-// SQLParser holds the parsed information of a SQL script
+// SQLParser holds the parsed information of a module script
 type SQLParser struct {
+	ModuleKind  string
 	OriginalSQL string
 	Server      string
 	Description string
@@ -22,26 +24,14 @@ type SQLParser struct {
 }
 
 var (
-	// Matches --SERVER=10.123.43.126
-	serverRegex = regexp.MustCompile(`(?m)^--SERVER=(.*)$`)
-
-	// Matches --TIMEOUT=10
-	timeoutRegex = regexp.MustCompile(`(?m)^--TIMEOUT=(.*)$`)
-
-	// Matches --DESCRIPTION=...
-	descriptionRegex = regexp.MustCompile(`(?m)^--DESCRIPTION=(.*)$`)
-
-	// Matches --EXECUTE_MODE=...
-	executeModeRegex = regexp.MustCompile(`(?m)^--EXECUTE_MODE=(.*)$`)
-
-	// Matches --RESULT_TYPE=...
-	resultTypeRegex = regexp.MustCompile(`(?m)^--RESULT_TYPE=(.*)$`)
-
-	// Matches the properties block, including multiline content
-	propertiesRegex = regexp.MustCompile(`(?si)--\s*<PROPERTIES>\s*\r?\n(.*?)\r?\n\s*--\s*</PROPERTIES>\s*`)
-
-	// Matches named lookup queries: --<LOOKUP NomeDoLookUp> ... --</LOOKUP>
-	lookupBlockRegex = regexp.MustCompile(`(?si)--\s*<LOOKUP\s+([A-Za-z][A-Za-z0-9_]*)\s*>\s*(.*?)\s*--\s*</LOOKUP>`)
+	// SQL dialect regexes (default)
+	serverRegex       = tagRegex("--", "SERVER")
+	timeoutRegex      = tagRegex("--", "TIMEOUT")
+	descriptionRegex  = tagRegex("--", "DESCRIPTION")
+	executeModeRegex  = tagRegex("--", "EXECUTE_MODE")
+	resultTypeRegex   = tagRegex("--", "RESULT_TYPE")
+	propertiesRegex   = propertiesBlockRegex("--")
+	lookupBlockRegex  = lookupBlockRegexFor("--")
 
 	fieldNameRegex = regexp.MustCompile(`[@?#]+([A-Za-z0-9_.]+)`)
 
@@ -49,6 +39,71 @@ var (
 	propertiesStartRegex = regexp.MustCompile(`(?m)^\s*--\s*<PROPERTIES>`)
 	mainSQLStartRegex    = regexp.MustCompile(`(?m)^\s*(SELECT|INSERT|UPDATE|DELETE|EXEC|WITH)\b`)
 )
+
+func tagRegex(prefix, name string) *regexp.Regexp {
+	return regexp.MustCompile(`(?m)^` + regexp.QuoteMeta(prefix) + regexp.QuoteMeta(name) + `=(.*)$`)
+}
+
+func propertiesBlockRegex(prefix string) *regexp.Regexp {
+	p := regexp.QuoteMeta(prefix)
+	return regexp.MustCompile(`(?si)` + p + `\s*<PROPERTIES>\s*\r?\n(.*?)\r?\n\s*` + p + `\s*</PROPERTIES>\s*`)
+}
+
+func lookupBlockRegexFor(prefix string) *regexp.Regexp {
+	p := regexp.QuoteMeta(prefix)
+	return regexp.MustCompile(`(?si)` + p + `\s*<LOOKUP\s+([A-Za-z][A-Za-z0-9_]*)\s*>\s*(.*?)\s*` + p + `\s*</LOOKUP>`)
+}
+
+type metadataDialect struct {
+	kind              string
+	linePrefix        string
+	defaultResult     string
+	allowServer       bool
+	allowLookups      bool
+	propertiesRegex   *regexp.Regexp
+	lookupBlockRegex  *regexp.Regexp
+	serverRegex       *regexp.Regexp
+	timeoutRegex      *regexp.Regexp
+	descriptionRegex  *regexp.Regexp
+	executeModeRegex  *regexp.Regexp
+	resultTypeRegex   *regexp.Regexp
+}
+
+func dialectForKind(kind string) metadataDialect {
+	kind = modulekind.NormalizeKind(kind)
+	if kind == "" {
+		kind = modulekind.KindSQL
+	}
+	prefix := "--"
+	defaultResult := "GRID"
+	allowServer := true
+	allowLookups := true
+	if kind == modulekind.KindSH || kind == modulekind.KindPS1 {
+		prefix = "#"
+		defaultResult = "TEXT"
+		allowServer = false
+		allowLookups = false
+	}
+	return metadataDialect{
+		kind:             kind,
+		linePrefix:       prefix,
+		defaultResult:    defaultResult,
+		allowServer:      allowServer,
+		allowLookups:     allowLookups,
+		propertiesRegex:  propertiesBlockRegex(prefix),
+		lookupBlockRegex: lookupBlockRegexFor(prefix),
+		serverRegex:      tagRegex(prefix, "SERVER"),
+		timeoutRegex:     tagRegex(prefix, "TIMEOUT"),
+		descriptionRegex: tagRegex(prefix, "DESCRIPTION"),
+		executeModeRegex: tagRegex(prefix, "EXECUTE_MODE"),
+		resultTypeRegex:  tagRegex(prefix, "RESULT_TYPE"),
+	}
+}
+
+func isLineComment(line, prefix string) bool {
+	line = strings.TrimSpace(line)
+	return strings.HasPrefix(line, prefix)
+}
 
 func isChoiceFieldLine(line string) bool {
 	typeUpper := strings.ToUpper(line)
@@ -143,70 +198,70 @@ func splitMetadataLine(line string, maxSplits int) []string {
 	return parts
 }
 
-// ParseMetadata reads the SQL content and extracts metadata
+// ParseMetadata reads SQL module content (backward compatible).
 func ParseMetadata(sqlContent string) (*SQLParser, error) {
+	return ParseMetadataForKind(sqlContent, modulekind.KindSQL)
+}
+
+// ParseMetadataForKind reads module content and extracts metadata for sql, sh, or ps1.
+func ParseMetadataForKind(content, kind string) (*SQLParser, error) {
+	d := dialectForKind(kind)
 	parser := &SQLParser{
-		OriginalSQL: sqlContent,
-		ResultType:  "GRID",
+		ModuleKind:  d.kind,
+		OriginalSQL: content,
+		ResultType:  d.defaultResult,
 		Fields:      make([]domain.Field, 0),
 		Lookups:     make(map[string]string),
 	}
 
-	for _, match := range lookupBlockRegex.FindAllStringSubmatch(sqlContent, -1) {
-		if len(match) < 3 {
-			continue
+	if d.allowLookups {
+		for _, match := range d.lookupBlockRegex.FindAllStringSubmatch(content, -1) {
+			if len(match) < 3 {
+				continue
+			}
+			lookupName := strings.TrimSpace(match[1])
+			parser.Lookups[lookupName] = strings.TrimSpace(match[2])
 		}
-		lookupName := strings.TrimSpace(match[1])
-		parser.Lookups[lookupName] = strings.TrimSpace(match[2])
+	} else if len(d.lookupBlockRegex.FindAllStringSubmatch(content, -1)) > 0 {
+		return nil, fmt.Errorf("blocos LOOKUP não são suportados em módulos %s", d.kind)
 	}
 
-	// Extract Server if present
-	serverMatch := serverRegex.FindStringSubmatch(sqlContent)
-	if len(serverMatch) > 1 {
-		parser.Server = strings.TrimSpace(serverMatch[1])
+	if d.allowServer {
+		if serverMatch := d.serverRegex.FindStringSubmatch(content); len(serverMatch) > 1 {
+			parser.Server = strings.TrimSpace(serverMatch[1])
+		}
 	}
 
-	// Extract Timeout if present, defaulting to 60
 	parser.Timeout = 60
-	timeoutMatch := timeoutRegex.FindStringSubmatch(sqlContent)
-	if len(timeoutMatch) > 1 {
+	if timeoutMatch := d.timeoutRegex.FindStringSubmatch(content); len(timeoutMatch) > 1 {
 		tVal := strings.TrimSpace(timeoutMatch[1])
 		if val, err := strconv.Atoi(tVal); err == nil && val > 0 {
 			parser.Timeout = val
 		}
 	}
 
-	// Extract Description if present
-	descriptionMatch := descriptionRegex.FindStringSubmatch(sqlContent)
-	if len(descriptionMatch) > 1 {
+	if descriptionMatch := d.descriptionRegex.FindStringSubmatch(content); len(descriptionMatch) > 1 {
 		parser.Description = strings.TrimSpace(descriptionMatch[1])
 	}
 
-	// Extract ExecuteMode if present
-	executeModeMatch := executeModeRegex.FindStringSubmatch(sqlContent)
-	if len(executeModeMatch) > 1 {
+	if executeModeMatch := d.executeModeRegex.FindStringSubmatch(content); len(executeModeMatch) > 1 {
 		parser.ExecuteMode = strings.TrimSpace(executeModeMatch[1])
 	}
 
-	// Extract ResultType if present
-	resultTypeMatch := resultTypeRegex.FindStringSubmatch(sqlContent)
-	if len(resultTypeMatch) > 1 {
+	if resultTypeMatch := d.resultTypeRegex.FindStringSubmatch(content); len(resultTypeMatch) > 1 {
 		parser.ResultType = NormalizeResultType(resultTypeMatch[1])
 	}
 
-	// Extract Properties block
-	propMatch := propertiesRegex.FindStringSubmatch(sqlContent)
+	propMatch := d.propertiesRegex.FindStringSubmatch(content)
 	if len(propMatch) == 0 {
-		return parser, nil // No properties block found
+		return parser, nil
 	}
 
 	propertiesBlock := propMatch[1]
-
-	// Parse fields
 	lines := strings.Split(propertiesBlock, "\n")
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
-		if line == "" || !strings.HasPrefix(line, "--") || !strings.Contains(line, "?") {
+		if line == "" || !isLineComment(line, d.linePrefix) || !strings.Contains(line, "?") {
 			continue
 		}
 
@@ -280,10 +335,20 @@ func ParseMetadata(sqlContent string) (*SQLParser, error) {
 			field.ContextKey = key
 			field.Hidden = true
 		}
+		if !d.allowLookups && fieldUsesLookup(typePart) {
+			return nil, fmt.Errorf("tipo LOOKUP não suportado em módulos %s (campo %s)", d.kind, fieldName)
+		}
 		parser.Fields = append(parser.Fields, field)
 	}
 
 	return parser, nil
+}
+
+func fieldUsesLookup(typePart string) bool {
+	upper := strings.ToUpper(typePart)
+	return strings.Contains(upper, ":LOOKUP(") ||
+		strings.Contains(upper, ":LOOKUP_MULTI(") ||
+		strings.Contains(upper, ":MULTILOOKUP(")
 }
 
 func applyConditionalComments(sqlContent string, values map[string]interface{}, fields []domain.Field) string {

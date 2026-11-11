@@ -13,6 +13,7 @@ import (
 	"sqlformys/internal/config"
 	"sqlformys/internal/domain"
 	"sqlformys/internal/engine"
+	"sqlformys/internal/modulekind"
 )
 
 type QueryHandler struct {
@@ -62,7 +63,8 @@ func (h *QueryHandler) GetMetadata(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	metadata, err := h.svc.GetMetadata(basePath, filepathParam)
+	kind := modulekind.NormalizeKind(r.URL.Query().Get("kind"))
+	metadata, err := h.svc.GetMetadata(basePath, filepathParam, kind)
 	if err != nil {
 		log.Printf("ERROR: Falha ao carregar metadados do arquivo %s (base: %s): %v", filepathParam, basePath, err)
 		respondWithError(w, http.StatusInternalServerError, err.Error())
@@ -94,13 +96,14 @@ func (h *QueryHandler) ExecuteQuery(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if err := h.applyContextPayload(basePath, filepathParam, payload, r); err != nil {
+	kind := modulekind.NormalizeKind(r.URL.Query().Get("kind"))
+	if err := h.applyContextPayload(basePath, filepathParam, kind, payload, r); err != nil {
 		log.Printf("ERROR: Falha ao aplicar contexto em ExecuteQuery para %s: %v", filepathParam, err)
 		respondWithError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	results, finalSQL, err := h.svc.ExecuteQuery(r.Context(), basePath, filepathParam, payload, h.cfg.DBDriver, h.cfg.DBDsn)
+	results, finalSQL, err := h.svc.ExecuteQuery(r.Context(), basePath, filepathParam, kind, payload, h.cfg.DBDriver, h.cfg.DBDsn)
 	if err != nil {
 		log.Printf("ERROR: Falha na execução da query %s | Driver: %s | Payload: %+v | Erro: %v | SQL Gerado: %s",
 			filepathParam, h.cfg.DBDriver, payload, err, finalSQL)
@@ -116,11 +119,11 @@ func (h *QueryHandler) ExecuteQuery(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(results)
 }
 
-func (h *QueryHandler) applyContextPayload(basePath, queryPath string, payload map[string]interface{}, r *http.Request) error {
+func (h *QueryHandler) applyContextPayload(basePath, queryPath, kind string, payload map[string]interface{}, r *http.Request) error {
 	if payload == nil {
 		return nil
 	}
-	metadata, err := h.svc.GetMetadata(basePath, queryPath)
+	metadata, err := h.svc.GetMetadata(basePath, queryPath, kind)
 	if err != nil {
 		return err
 	}
@@ -161,13 +164,14 @@ func (h *QueryHandler) ExecuteLookup(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if err := h.applyContextPayload(basePath, filepathParam, payload, r); err != nil {
+	kind := modulekind.NormalizeKind(r.URL.Query().Get("kind"))
+	if err := h.applyContextPayload(basePath, filepathParam, kind, payload, r); err != nil {
 		log.Printf("ERROR: Falha ao aplicar contexto em ExecuteLookup para %s: %v", filepathParam, err)
 		respondWithError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	results, finalSQL, err := h.svc.ExecuteLookup(r.Context(), basePath, filepathParam, lookupName, lookupField, payload, h.cfg.DBDriver, h.cfg.DBDsn)
+	results, finalSQL, err := h.svc.ExecuteLookup(r.Context(), basePath, filepathParam, kind, lookupName, lookupField, payload, h.cfg.DBDriver, h.cfg.DBDsn)
 	if err != nil {
 		log.Printf("ERROR: Falha na execução do lookup %s em %s | Driver: %s | Payload: %+v | Erro: %v | SQL Gerado: %s",
 			lookupName, filepathParam, h.cfg.DBDriver, payload, err, finalSQL)

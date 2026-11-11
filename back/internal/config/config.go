@@ -69,6 +69,9 @@ func Load() *Config {
 	if queriesBasePath == "" {
 		queriesBasePath = "queries"
 	}
+	if abs, err := filepath.Abs(queriesBasePath); err == nil {
+		queriesBasePath = abs
+	}
 
 	productName := os.Getenv("PRODUCT_NAME")
 

@@ -169,9 +169,13 @@ For defense in depth, you can still restrict network access (VPN, firewall) in a
 
 ## Writing query modules
 
-Each `.sql` file under `back/queries/<project>/` becomes a module in the UI. The filename (without `.sql`) is the module name; the parent folder is the project.
+Each module is a file under `back/queries/<project>/` with extension **`.sql`**, **`.sh`**, or **`.ps1`**. The filename without extension is the module name; the parent folder is the project. Only one of these extensions may exist per basename in the same folder (you cannot have both `Consulta.sql` and `Consulta.sh` in the same directory).
 
-The engine reads **comment tags** in the file: header metadata, a `--<PROPERTIES>` block that describes form fields, and optional inline conditionals in the SQL itself.
+The API and UI identify the language with the query parameter **`kind=sql`**, **`kind=sh`**, or **`kind=ps1`** on `GET/POST /api/queries/...` and on admin read/write. The sidebar also returns `kind` on each module node.
+
+### SQL modules (`.sql`)
+
+The SQL engine reads **comment tags** in the file: header metadata, a `--<PROPERTIES>` block that describes form fields, and optional inline conditionals in the SQL itself.
 
 ### Header tags
 
@@ -423,6 +427,49 @@ You can also put filters **inside** the properties block (no `@`). Those lines a
 ```
 
 On **GET** `/query/<project>/<module>` the API returns the parsed fields as JSON so the frontend can render the form. On **POST** the submitted values are injected and the query is executed.
+
+### Shell and PowerShell modules (`.sh` / `.ps1`)
+
+Script modules reuse the same **form tags** and **PROPERTIES** syntax, but metadata comments use **`#`** instead of `--`:
+
+| Tag | Purpose |
+| --- | --- |
+| `#DESCRIPTION=...` | Short text in the UI |
+| `#EXECUTE_MODE=AUTO` | Run on load (same as SQL) |
+| `#RESULT_TYPE=...` | Defaults to **TEXT** (not GRID). Use **GRID** only if stdout is a JSON array of objects |
+| `#TIMEOUT=60` | Process timeout in seconds |
+| `#<PROPERTIES>` / `#</PROPERTIES>` | Form fields (same `?`, `#` required, types as SQL) |
+
+On execute, the API runs the file with **`bash`** (`.sh`) or **`pwsh -File`** (`.ps1`) and passes each form field as an **environment variable** (`NM_ARQUIVO=...` / PowerShell `$env:NM_ARQUIVO`). There is **no** `--SERVER=`, **no** SQL injection, and **no** LOOKUP blocks against the database.
+
+Example `.sh`:
+
+```bash
+#!/usr/bin/env bash
+#DESCRIPTION=Listar diretório
+#RESULT_TYPE=TEXT
+
+#<PROPERTIES>
+# @?#DIR:VARCHAR:200:=:Caminho
+#</PROPERTIES>
+
+ls -la "${DIR:-.}"
+```
+
+Example `.ps1`:
+
+```powershell
+#DESCRIPTION=Contagem de linhas
+#RESULT_TYPE=TEXT
+
+#<PROPERTIES>
+# @?#ARQUIVO:VARCHAR:260:=:Arquivo
+#</PROPERTIES>
+
+(Get-Content -Path $env:ARQUIVO -ErrorAction Stop | Measure-Object -Line).Lines
+```
+
+**Docker:** the API image includes **bash** (`.sh`) and **PowerShell 7** (`pwsh` em `/usr/local/bin/pwsh`) for `.ps1`. Após alterar o `Dockerfile`, rode `docker compose build api`. Fora do Docker, instale `pwsh` no host ou defina `PWSH_PATH` no ambiente da API.
 
 ## Why SQLFormys?
 

@@ -37,6 +37,7 @@ const resultCardBody = document.querySelector('.result-card-body');
 
 // Estado atual
 let currentQueryPath = null;
+let currentQueryKind = 'sql';
 let currentFields = [];
 let allProjects = [];
 let currentQueryResult = null;
@@ -324,7 +325,21 @@ async function loadProjects() {
     }
 }
 
-async function loadFormFields(queryPath, moduleTitle) {
+function normalizeModuleKind(kind) {
+    const k = String(kind || 'sql').toLowerCase();
+    if (k === 'sh' || k === 'ps1') return k;
+    return 'sql';
+}
+
+function moduleKindQueryParam(kind) {
+    return `?kind=${encodeURIComponent(normalizeModuleKind(kind))}`;
+}
+
+function queriesApiUrl(queryPath, kind) {
+    return `${API_BASE_URL}/queries/${queryPath}${moduleKindQueryParam(kind)}`;
+}
+
+async function loadFormFields(queryPath, moduleTitle, moduleKind = 'sql') {
     if (typeof confirmCloseSqlEditorIfNeeded === 'function') {
         const canProceed = await confirmCloseSqlEditorIfNeeded();
         if (!canProceed) return;
@@ -333,19 +348,24 @@ async function loadFormFields(queryPath, moduleTitle) {
     }
     document.getElementById('sql-editor-container')?.classList.add('hidden');
     try {
-        const response = await apiFetch(`${API_BASE_URL}/queries/${queryPath}`);
+        const kind = normalizeModuleKind(moduleKind);
+        const response = await apiFetch(queriesApiUrl(queryPath, kind));
         if (!response.ok) throw new Error('Falha ao carregar campos do formulário');
         
         const data = await response.json();
+        const resolvedKind = normalizeModuleKind(data.kind || kind);
         const fields = data.fields || [];
         const description = data.description || '';
         const executeMode = data.executeMode || '';
-        const server = data.server || '';
+        const server = resolvedKind === 'sql' ? (data.server || '') : '';
         const timeout = data.timeout || 60;
-        currentResultType = String(data.resultType || 'GRID').toUpperCase();
+        const defaultResultType = resolvedKind === 'sql' ? 'GRID' : 'TEXT';
+        currentResultType = String(data.resultType || defaultResultType).toUpperCase();
         
         currentQueryPath = queryPath;
+        currentQueryKind = resolvedKind;
         window.sqlformysActiveQueryPath = queryPath;
+        window.sqlformysActiveQueryKind = resolvedKind;
         currentFields = fields;
         currentQueryLookups = data.lookups || {};
 
@@ -385,7 +405,7 @@ async function executeQuery(payload) {
     const startTime = performance.now();
 
     try {
-        const response = await apiFetch(`${API_BASE_URL}/queries/${currentQueryPath}`, {
+        const response = await apiFetch(queriesApiUrl(currentQueryPath, currentQueryKind), {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
@@ -456,6 +476,31 @@ function treeSqlModuleIconMarkup(inlineStyle = '') {
         <path d="M3 5v6c0 1.66 4 3 9 3s9-1.34 9-3V5"></path>
         <path d="M3 11v6c0 1.66 4 3 9 3s9-1.34 9-3v-6"></path>
     </svg>`;
+}
+
+function treeShModuleIconMarkup(inlineStyle = '') {
+    const styleAttr = inlineStyle ? ` style="${inlineStyle}"` : '';
+    return `<svg class="tree-icon module-icon sh-module-icon"${styleAttr} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <polyline points="4 17 10 11 4 5"></polyline>
+        <line x1="12" y1="19" x2="20" y2="19"></line>
+    </svg>`;
+}
+
+function treePs1ModuleIconMarkup(inlineStyle = '') {
+    const styleAttr = inlineStyle ? ` style="${inlineStyle}"` : '';
+    return `<svg class="tree-icon module-icon ps1-module-icon"${styleAttr} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
+        <line x1="6" y1="8" x2="10" y2="8"></line>
+        <line x1="6" y1="12" x2="14" y2="12"></line>
+        <path d="M15 7h3v3h-3z"></path>
+    </svg>`;
+}
+
+function treeModuleIconMarkup(kind, inlineStyle = '') {
+    const k = normalizeModuleKind(kind);
+    if (k === 'sh') return treeShModuleIconMarkup(inlineStyle);
+    if (k === 'ps1') return treePs1ModuleIconMarkup(inlineStyle);
+    return treeSqlModuleIconMarkup(inlineStyle);
 }
 
 function renderTree(nodes, container, isSearching = false) {
@@ -561,6 +606,7 @@ function renderTree(nodes, container, isSearching = false) {
                 const moduleLink = document.createElement('a');
                 moduleLink.className = 'tree-module-link module-link';
                 moduleLink.dataset.path = node.path;
+                moduleLink.dataset.kind = normalizeModuleKind(node.kind);
                 moduleLink.style.paddingLeft = `${16 + (level * 16)}px`;
                 moduleLink.setAttribute('data-tooltip', node.name);
                 
@@ -572,7 +618,7 @@ function renderTree(nodes, container, isSearching = false) {
                 
                 moduleLink.innerHTML = `
                     <div class="tree-module-info">
-                        ${treeSqlModuleIconMarkup()}
+                        ${treeModuleIconMarkup(node.kind)}
                         <span class="tree-title">${node.name}</span>
                     </div>
                     <button class="favorite-btn ${isFav ? 'is-favorite' : ''}" data-tooltip="${isFav ? 'Remover dos favoritos' : 'Adicionar aos favoritos'}">
@@ -583,7 +629,7 @@ function renderTree(nodes, container, isSearching = false) {
                 `;
 
                 if (typeof attachModuleEditAction === 'function') {
-                    attachModuleEditAction(moduleLink, node.path, API_BASE_URL);
+                    attachModuleEditAction(moduleLink, node.path, node.kind, API_BASE_URL);
                 }
 
                 moduleLink.addEventListener('click', (e) => {
@@ -597,7 +643,7 @@ function renderTree(nodes, container, isSearching = false) {
                     }
                     e.preventDefault();
                     setActiveModule(node.path);
-                    loadFormFields(node.path, node.name);
+                    loadFormFields(node.path, node.name, node.kind);
                 });
 
                 itemContainer.appendChild(moduleLink);
@@ -1087,7 +1133,7 @@ async function loadLookupOptions(select) {
 
     select.dataset.lookupLoading = 'true';
     try {
-        const response = await apiFetch(`${API_BASE_URL}/lookups/${currentQueryPath}?name=${encodeURIComponent(lookupName)}&field=${encodeURIComponent(select.name)}`, {
+        const response = await apiFetch(`${API_BASE_URL}/lookups/${currentQueryPath}?name=${encodeURIComponent(lookupName)}&field=${encodeURIComponent(select.name)}&kind=${encodeURIComponent(normalizeModuleKind(currentQueryKind))}`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
@@ -1550,7 +1596,8 @@ function openFormModuleSqlEditor() {
         return false;
     }
     if (typeof window.openSqlEditor === 'function') {
-        void window.openSqlEditor(API_BASE_URL, queryPath);
+        const kind = window.sqlformysActiveQueryKind || currentQueryKind || 'sql';
+        void window.openSqlEditor(API_BASE_URL, queryPath, undefined, kind);
         return true;
     }
     showToast('Editor SQL', 'Painel administrativo indisponível.', 'error');
@@ -1575,8 +1622,8 @@ function syncFormModuleEditButton(queryPath) {
         btn.type = 'button';
         btn.id = 'form-module-edit-btn';
         btn.className = 'tree-icon-btn form-module-edit-btn hidden';
-        btn.setAttribute('aria-label', 'Editar SQL');
-        btn.setAttribute('data-tooltip', 'Editar SQL');
+        btn.setAttribute('aria-label', 'Editar módulo');
+        btn.setAttribute('data-tooltip', 'Editar módulo');
         header.appendChild(btn);
     }
 
@@ -1624,6 +1671,16 @@ function renderForm(queryPath, moduleTitle, fields, description = '', executeMod
     if (metaContainer) {
         metaContainer.innerHTML = '';
         let hasMeta = false;
+
+        const moduleKind = normalizeModuleKind(currentQueryKind);
+        if (moduleKind !== 'sql') {
+            const kindBadge = document.createElement('span');
+            kindBadge.className = `meta-badge module-kind kind-${moduleKind}`;
+            const label = moduleKind === 'sh' ? 'Shell' : 'PowerShell';
+            kindBadge.textContent = `Tipo: ${label}`;
+            metaContainer.appendChild(kindBadge);
+            hasMeta = true;
+        }
 
         if (server) {
             const serverBadge = document.createElement('span');
@@ -1950,6 +2007,8 @@ function handleCancel() {
     document.querySelectorAll('.favorite-item').forEach(item => item.classList.remove('active'));
     
     currentQueryPath = null;
+    currentQueryKind = 'sql';
+    window.sqlformysActiveQueryKind = 'sql';
     window.sqlformysActiveQueryPath = '';
     currentFields = [];
     currentQueryLookups = {};
@@ -3110,7 +3169,7 @@ function renderFavorites() {
             
             itemEl.innerHTML = `
                 <div class="favorite-item-info">
-                    ${treeSqlModuleIconMarkup('margin-right: 8px; width: 14px; height: 14px;')}
+                    ${treeModuleIconMarkup(moduleNode.kind, 'margin-right: 8px; width: 14px; height: 14px;')}
                     <span class="favorite-item-title">${moduleNode.name}</span>
                 </div>
                 <button class="favorite-remove-btn" data-tooltip="Remover dos favoritos">
@@ -3123,7 +3182,7 @@ function renderFavorites() {
             itemEl.addEventListener('click', (e) => {
                 if (e.target.closest('.favorite-remove-btn')) return;
                 setActiveModule(path);
-                loadFormFields(path, moduleNode.name);
+                loadFormFields(path, moduleNode.name, moduleNode.kind);
             });
         } else {
             // Favorito indisponível

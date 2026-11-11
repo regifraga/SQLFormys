@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,6 +12,7 @@ import (
 
 	"sqlformys/internal/domain"
 	"sqlformys/internal/engine"
+	"sqlformys/internal/modulekind"
 	"sqlformys/pkg/database"
 )
 
@@ -36,6 +38,8 @@ func buildTree(currentDir string, currentRelPath string) ([]domain.TreeNode, err
 		return nil, err
 	}
 
+	seenBasename := make(map[string]string)
+
 	for _, entry := range entries {
 		if entry.IsDir() {
 			subDir := filepath.Join(currentDir, entry.Name())
@@ -54,19 +58,32 @@ func buildTree(currentDir string, currentRelPath string) ([]domain.TreeNode, err
 				Type:     "folder",
 				Children: children,
 			})
-		} else if strings.HasSuffix(entry.Name(), ".sql") {
-			moduleName := strings.TrimSuffix(entry.Name(), ".sql")
-			modRel := moduleName
-			if currentRelPath != "" {
-				modRel = currentRelPath + "/" + moduleName
-			}
-
-			nodes = append(nodes, domain.TreeNode{
-				Name: moduleName,
-				Type: "module",
-				Path: modRel,
-			})
+			continue
 		}
+
+		ext := filepath.Ext(entry.Name())
+		kind, ok := modulekind.KindFromExt(ext)
+		if !ok {
+			continue
+		}
+		moduleName := strings.TrimSuffix(entry.Name(), ext)
+		if prev, dup := seenBasename[moduleName]; dup {
+			log.Printf("WARN: ignorando módulo duplicado %s (%s); já existe %s", entry.Name(), kind, prev)
+			continue
+		}
+		seenBasename[moduleName] = kind
+
+		modRel := moduleName
+		if currentRelPath != "" {
+			modRel = currentRelPath + "/" + moduleName
+		}
+
+		nodes = append(nodes, domain.TreeNode{
+			Name: moduleName,
+			Type: "module",
+			Kind: kind,
+			Path: modRel,
+		})
 	}
 
 	return nodes, nil
@@ -80,21 +97,33 @@ func (s *queryService) ListProjects(basePath string) ([]domain.TreeNode, error) 
 	return nodes, nil
 }
 
-func (s *queryService) GetMetadata(basePath, queryPath string) (domain.MetadataResponse, error) {
-	sqlFilePath := filepath.Join(basePath, queryPath+".sql")
-	content, err := os.ReadFile(sqlFilePath)
+func (s *queryService) GetMetadata(basePath, queryPath, kind string) (domain.MetadataResponse, error) {
+	absPath, resolvedKind, err := modulekind.ResolveModule(basePath, queryPath, kind)
 	if err != nil {
-		return domain.MetadataResponse{}, fmt.Errorf("erro ao ler arquivo SQL: %w", err)
+		return domain.MetadataResponse{}, err
+	}
+	content, err := os.ReadFile(absPath)
+	if err != nil {
+		return domain.MetadataResponse{}, fmt.Errorf("erro ao ler módulo: %w", err)
 	}
 
-	parser, err := engine.ParseMetadata(string(content))
+	parser, err := engine.ParseMetadataForKind(string(content), resolvedKind)
 	if err != nil {
-		return domain.MetadataResponse{}, fmt.Errorf("erro ao fazer parse do SQL: %w", err)
+		return domain.MetadataResponse{}, fmt.Errorf("erro ao fazer parse do módulo: %w", err)
 	}
 
-	fields, lookupsMeta := engine.ApplyLookupDependencies(parser.Fields, parser.Lookups)
+	fields := parser.Fields
+	lookupsMeta := map[string]domain.LookupMetadata{}
+	if resolvedKind == modulekind.KindSQL {
+		fields, lookupsMeta = engine.ApplyLookupDependencies(parser.Fields, parser.Lookups)
+	}
+	server := parser.Server
+	if resolvedKind != modulekind.KindSQL {
+		server = ""
+	}
 	return domain.MetadataResponse{
-		Server:      parser.Server,
+		Kind:        resolvedKind,
+		Server:      server,
 		Description: parser.Description,
 		ExecuteMode: parser.ExecuteMode,
 		ResultType:  parser.ResultType,
@@ -104,25 +133,44 @@ func (s *queryService) GetMetadata(basePath, queryPath string) (domain.MetadataR
 	}, nil
 }
 
-func (s *queryService) ExecuteQuery(ctx context.Context, basePath, queryPath string, payload map[string]interface{}, defaultDriver, defaultDsn string) (domain.QueryResult, string, error) {
-	sqlFilePath := filepath.Join(basePath, queryPath+".sql")
-	content, err := os.ReadFile(sqlFilePath)
+func (s *queryService) ExecuteQuery(ctx context.Context, basePath, queryPath, kind string, payload map[string]interface{}, defaultDriver, defaultDsn string) (domain.QueryResult, string, error) {
+	absPath, resolvedKind, err := modulekind.ResolveModule(basePath, queryPath, kind)
 	if err != nil {
-		return domain.QueryResult{}, "", fmt.Errorf("erro ao ler arquivo SQL: %w", err)
+		return domain.QueryResult{}, "", err
+	}
+	content, err := os.ReadFile(absPath)
+	if err != nil {
+		return domain.QueryResult{}, "", fmt.Errorf("erro ao ler módulo: %w", err)
 	}
 
-	parser, err := engine.ParseMetadata(string(content))
+	parser, err := engine.ParseMetadataForKind(string(content), resolvedKind)
 	if err != nil {
-		return domain.QueryResult{}, "", fmt.Errorf("erro ao fazer parse do SQL: %w", err)
+		return domain.QueryResult{}, "", fmt.Errorf("erro ao fazer parse do módulo: %w", err)
+	}
+
+	if resolvedKind != modulekind.KindSQL {
+		result, runErr := engine.RunScript(ctx, absPath, resolvedKind, parser, payload)
+		return result, "", runErr
 	}
 
 	finalSQL := engine.InjectValues(string(content), payload, parser.Fields, defaultDriver)
 	return s.runPreparedSQL(ctx, parser, finalSQL, payload, defaultDriver, defaultDsn)
 }
 
-func (s *queryService) ExecuteLookup(ctx context.Context, basePath, queryPath, lookupName, lookupField string, payload map[string]interface{}, defaultDriver, defaultDsn string) (domain.LookupResult, string, error) {
-	sqlFilePath := filepath.Join(basePath, queryPath+".sql")
-	content, err := os.ReadFile(sqlFilePath)
+func (s *queryService) ExecuteLookup(ctx context.Context, basePath, queryPath, kind, lookupName, lookupField string, payload map[string]interface{}, defaultDriver, defaultDsn string) (domain.LookupResult, string, error) {
+	_, resolvedKind, err := modulekind.ResolveModule(basePath, queryPath, kind)
+	if err != nil {
+		return domain.LookupResult{}, "", err
+	}
+	if resolvedKind != modulekind.KindSQL {
+		return domain.LookupResult{}, "", fmt.Errorf("LOOKUP não suportado neste tipo de módulo (%s)", resolvedKind)
+	}
+
+	absPath, _, err := modulekind.ResolveModule(basePath, queryPath, modulekind.KindSQL)
+	if err != nil {
+		return domain.LookupResult{}, "", err
+	}
+	content, err := os.ReadFile(absPath)
 	if err != nil {
 		return domain.LookupResult{}, "", fmt.Errorf("erro ao ler arquivo SQL: %w", err)
 	}

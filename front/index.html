@@ -59,7 +59,7 @@
                 </div>
             </div>
             <div class="notifications-wrap" id="notifications-wrap">
-                <button type="button" id="notifications-toggle" class="notifications-toggle-btn theme-toggle-btn" aria-haspopup="true" aria-expanded="false" aria-label="Notificações" title="Notificações">
+                <button type="button" id="notifications-toggle" class="notifications-toggle-btn theme-toggle-btn" aria-haspopup="true" aria-expanded="false" aria-label="Sem notificações" title="Sem notificações" disabled>
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                         <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
                         <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
@@ -70,6 +70,13 @@
                     <div class="notifications-panel-header">
                         <h2 class="notifications-panel-title">Notificações</h2>
                         <button type="button" id="notifications-clear-all" class="btn btn-sm btn-outline notifications-clear-btn" disabled>Limpar tudo</button>
+                    </div>
+                    <div class="notifications-panel-toolbar">
+                        <label class="notifications-filter-switch" for="notifications-errors-only">
+                            <span class="notifications-filter-label">Somente erros</span>
+                            <input type="checkbox" id="notifications-errors-only" class="notifications-filter-input" role="switch" aria-checked="false">
+                            <span class="notifications-filter-track" aria-hidden="true"></span>
+                        </label>
                     </div>
                     <div id="notifications-empty" class="notifications-empty">Nenhuma notificação</div>
                     <div id="notifications-list" class="notifications-list" role="list"></div>
@@ -179,7 +186,7 @@
                         <span class="module-path" id="form-subtitle">Projeto > Módulo</span>
                         <p id="form-description" class="form-description hidden"></p>
                         <div id="form-meta-container" class="form-meta-container hidden"></div>
-                        <button type="button" id="form-module-edit-btn" class="tree-icon-btn form-module-edit-btn hidden" aria-label="Editar SQL" data-tooltip="Editar SQL"></button>
+                        <button type="button" id="form-module-edit-btn" class="tree-icon-btn form-module-edit-btn hidden" aria-label="Editar módulo" data-tooltip="Editar módulo"></button>
                     </div>
                     <div class="card-body">
                         <form id="dynamic-form">
@@ -292,6 +299,8 @@
     <script src="config.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/sql/sql.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/shell/shell.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/powershell/powershell.min.js"></script>
     <script src="theme.js"></script>
     <script src="auth.js"></script>
     <script src="user-settings.js"></script>

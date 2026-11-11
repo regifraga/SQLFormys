@@ -4,7 +4,9 @@
 
 let sqlEditorInstance = null;
 let sqlEditorPath = null;
+let sqlEditorKind = 'sql';
 let sqlEditorBaselineContent = null;
+let sqlEditorContentReady = false;
 let adminUsersCache = [];
 
 function resolveAuthIdentity() {
@@ -78,9 +80,69 @@ function openAppModal({ title, body, primaryLabel = 'Confirmar', secondaryLabel 
 
 window.openAppModal = openAppModal;
 
-function adminSqlUrl(apiBaseUrl, relPath) {
+function normalizeEditorKind(kind) {
+    const k = String(kind || 'sql').toLowerCase();
+    if (k === 'sh' || k === 'ps1') return k;
+    return 'sql';
+}
+
+function moduleKindLabel(kind) {
+    const k = normalizeEditorKind(kind);
+    if (k === 'sh') return 'Shell (.sh)';
+    if (k === 'ps1') return 'PowerShell (.ps1)';
+    return 'SQL';
+}
+
+function codemirrorModeForKind(kind) {
+    const k = normalizeEditorKind(kind);
+    if (k === 'sh') return 'text/x-sh';
+    if (k === 'ps1') return 'application/x-powershell';
+    return 'text/x-sql';
+}
+
+function scaffoldModuleContent(kind) {
+    const k = normalizeEditorKind(kind);
+    if (k === 'sh') {
+        return `#!/usr/bin/env bash
+#DESCRIPTION=Novo módulo shell
+#RESULT_TYPE=TEXT
+#TIMEOUT=60
+
+#<PROPERTIES>
+# @?NM_EXEMPLO:VARCHAR:50:=:Exemplo
+#</PROPERTIES>
+
+echo "Valor: \${NM_EXEMPLO:-}"
+`;
+    }
+    if (k === 'ps1') {
+        return `#DESCRIPTION=Novo módulo PowerShell
+#RESULT_TYPE=TEXT
+#TIMEOUT=60
+
+#<PROPERTIES>
+# @?NM_EXEMPLO:VARCHAR:50:=:Exemplo
+#</PROPERTIES>
+
+Write-Output "Valor: $env:NM_EXEMPLO"
+`;
+    }
+    return `--DESCRIPTION=Novo módulo SQL
+--RESULT_TYPE=GRID
+--TIMEOUT=60
+
+--<PROPERTIES>
+-- SELECT @?NM_EXEMPLO:VARCHAR:50:=:Exemplo
+--</PROPERTIES>
+
+SELECT 1 AS Id, @NM_EXEMPLO AS Valor;
+`;
+}
+
+function adminSqlUrl(apiBaseUrl, relPath, kind) {
     const encoded = String(relPath).split('/').map(encodeURIComponent).join('/');
-    return `${apiBaseUrl}/admin/sql/${encoded}`;
+    const q = `?kind=${encodeURIComponent(normalizeEditorKind(kind))}`;
+    return `${apiBaseUrl}/admin/sql/${encoded}${q}`;
 }
 
 async function fetchAdminUsers(apiBaseUrl) {
@@ -401,6 +463,14 @@ function openAddNodeModal(apiBaseUrl, parentPath) {
                 <option value="folder">Pasta</option>
                 <option value="file">Arquivo</option>
             </select>
+            <div class="form-field-stack hidden" id="add-node-file-kind-wrap">
+                <label for="add-node-file-kind">Tipo do arquivo</label>
+                <select id="add-node-file-kind" class="form-control">
+                    <option value="sql">SQL (.sql)</option>
+                    <option value="sh">Shell (.sh)</option>
+                    <option value="ps1">PowerShell (.ps1)</option>
+                </select>
+            </div>
         </div>
         <div class="form-field-stack">
             <label for="add-node-name">Nome</label>
@@ -408,6 +478,15 @@ function openAddNodeModal(apiBaseUrl, parentPath) {
         </div>
         <span class="form-field-hint" id="add-node-hint"></span>
     `;
+    const typeSelect = body.querySelector('#add-node-type');
+    const kindWrap = body.querySelector('#add-node-file-kind-wrap');
+    const syncKindVisibility = () => {
+        const isFile = typeSelect?.value === 'file';
+        kindWrap?.classList.toggle('hidden', !isFile);
+    };
+    typeSelect?.addEventListener('change', syncKindVisibility);
+    syncKindVisibility();
+
     openAppModal({
         title: parentPath ? 'Adicionar na pasta' : 'Adicionar na raiz',
         body,
@@ -437,7 +516,8 @@ function openAddNodeModal(apiBaseUrl, parentPath) {
                 showToast('Estrutura', 'Pasta criada.', 'success');
                 return true;
             }
-            openSqlEditor(apiBaseUrl, rel, '');
+            const fileKind = body.querySelector('#add-node-file-kind')?.value || 'sql';
+            openSqlEditor(apiBaseUrl, rel, scaffoldModuleContent(fileKind), fileKind);
             return true;
         }
     });
@@ -514,7 +594,15 @@ function refreshSqlEditorLayout({ focus = false } = {}) {
     });
 }
 
-async function openSqlEditor(apiBaseUrl, relPath, initialContent) {
+function normalizeEditorContentForCompare(text) {
+    return String(text ?? '').replace(/\r\n?/g, '\n');
+}
+
+function editorContentMatchesBaseline(editorValue, baseline) {
+    return normalizeEditorContentForCompare(editorValue) === normalizeEditorContentForCompare(baseline);
+}
+
+async function openSqlEditor(apiBaseUrl, relPath, initialContent, kind = 'sql') {
     const container = document.getElementById('sql-editor-container');
     const formContainer = document.getElementById('form-container');
     const gridContainer = document.getElementById('grid-container');
@@ -522,7 +610,9 @@ async function openSqlEditor(apiBaseUrl, relPath, initialContent) {
     if (!container) return;
 
     sqlEditorPath = relPath;
-    document.getElementById('sql-editor-title').textContent = 'Editor SQL';
+    sqlEditorKind = normalizeEditorKind(kind);
+    const titleEl = document.getElementById('sql-editor-title');
+    if (titleEl) titleEl.textContent = `Editor — ${moduleKindLabel(sqlEditorKind)}`;
     document.getElementById('sql-editor-subtitle').textContent = relPath;
 
     formContainer?.classList.add('hidden');
@@ -533,20 +623,24 @@ async function openSqlEditor(apiBaseUrl, relPath, initialContent) {
     ensureSqlEditor();
     if (!sqlEditorInstance) return;
     bindSqlEditorShortcuts(apiBaseUrl);
+    sqlEditorContentReady = false;
 
     let content = initialContent;
     if (content === undefined || content === null) {
-        const res = await apiFetch(adminSqlUrl(apiBaseUrl, relPath));
+        const res = await apiFetch(adminSqlUrl(apiBaseUrl, relPath, sqlEditorKind));
         if (res.ok) {
             const data = await res.json();
             content = data.content || '';
+            if (data.kind) sqlEditorKind = normalizeEditorKind(data.kind);
         } else {
             content = '';
         }
     }
-    sqlEditorInstance.setValue(content);
-    sqlEditorBaselineContent = content;
+    sqlEditorInstance.setValue(content ?? '');
+    sqlEditorInstance.setOption('mode', codemirrorModeForKind(sqlEditorKind));
     sqlEditorInstance.setOption('theme', codemirrorTheme());
+    sqlEditorBaselineContent = sqlEditorInstance.getValue();
+    sqlEditorContentReady = true;
     refreshSqlEditorLayout({ focus: true });
 }
 
@@ -556,8 +650,8 @@ function isSqlEditorOpen() {
 }
 
 function isSqlEditorDirty() {
-    if (!sqlEditorInstance) return false;
-    return sqlEditorInstance.getValue() !== (sqlEditorBaselineContent ?? '');
+    if (!sqlEditorInstance || !sqlEditorContentReady) return false;
+    return !editorContentMatchesBaseline(sqlEditorInstance.getValue(), sqlEditorBaselineContent);
 }
 
 function confirmCloseSqlEditorIfNeeded() {
@@ -601,7 +695,7 @@ function requestCloseSqlEditor() {
 async function saveSqlEditorContent(apiBaseUrl) {
     if (!sqlEditorPath || !sqlEditorInstance || !isSqlEditorOpen()) return;
     const content = sqlEditorInstance.getValue();
-    const res = await apiFetch(adminSqlUrl(apiBaseUrl, sqlEditorPath), {
+    const res = await apiFetch(adminSqlUrl(apiBaseUrl, sqlEditorPath, sqlEditorKind), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ content })
@@ -648,14 +742,17 @@ async function reloadModuleFormAfterSqlSave(savedPath) {
     if (!path || typeof loadFormFields !== 'function') return;
     sqlEditorPath = null;
     document.getElementById('sql-editor-container')?.classList.add('hidden');
-    await loadFormFields(path, moduleTitleForPath(path));
+    const kind = window.sqlformysActiveQueryKind || sqlEditorKind || 'sql';
+    await loadFormFields(path, moduleTitleForPath(path), kind);
 }
 
 function closeSqlEditor() {
     const container = document.getElementById('sql-editor-container');
     container?.classList.add('hidden');
     sqlEditorPath = null;
+    sqlEditorKind = 'sql';
     sqlEditorBaselineContent = null;
+    sqlEditorContentReady = false;
     const path = window.sqlformysActiveQueryPath;
     const formContainer = document.getElementById('form-container');
     const gridContainer = document.getElementById('grid-container');
@@ -701,7 +798,10 @@ function updateFormModuleEditAction(queryPath, apiBaseUrl) {
         btn.dataset.initialized = '1';
         btn.innerHTML = ICON_EDIT;
     }
-    btn.onclick = () => openSqlEditor(apiBaseUrl, queryPath);
+    btn.onclick = () => {
+        const kind = window.sqlformysActiveQueryKind || 'sql';
+        openSqlEditor(apiBaseUrl, queryPath, undefined, kind);
+    };
 }
 
 function initAdminPanel(identity, apiBaseUrl) {
@@ -757,12 +857,13 @@ function attachFolderAdminActions(folderHeader, folderRelPath, folderName, apiBa
     folderHeader.appendChild(actions);
 }
 
-function attachModuleEditAction(moduleLink, path, apiBaseUrl) {
+function attachModuleEditAction(moduleLink, path, kind, apiBaseUrl) {
     if (!isAdminUser()) return;
     const actions = document.createElement('span');
     actions.className = 'tree-row-actions';
-    actions.appendChild(createTreeIconBtn('Editar SQL', ICON_EDIT, () => {
-        openSqlEditor(apiBaseUrl, path);
+    const resolvedKind = kind || moduleLink?.dataset?.kind || 'sql';
+    actions.appendChild(createTreeIconBtn('Editar módulo', ICON_EDIT, () => {
+        openSqlEditor(apiBaseUrl, path, undefined, resolvedKind);
     }));
     moduleLink.appendChild(actions);
 }

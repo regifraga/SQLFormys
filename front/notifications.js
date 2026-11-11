@@ -2,9 +2,11 @@
  * Centro de notificações: histórico (até 40), toasts efêmeros e painel no header.
  */
 const LS_NOTIFICATIONS_PREFIX = 'sqlformys_notifications';
+const LS_NOTIFICATIONS_ERRORS_ONLY_PREFIX = 'sqlformys_notifications_errors_only';
 const NOTIFICATIONS_MAX = 40;
 
 let notificationsCache = [];
+let showErrorsOnly = false;
 
 function escapeHtml(value) {
     return String(value ?? '')
@@ -22,14 +24,69 @@ function formatMessageForHtml(message) {
     return escapeHtml(normalized).replace(/&lt;br&gt;/g, '<br>');
 }
 
-function notificationsStorageKey() {
+function authScopedStorageKey(prefix) {
     const id = typeof getAuthIdentity === 'function' ? getAuthIdentity() : null;
     const username = id && id.username ? String(id.username).trim() : '';
     if (!username) {
-        return LS_NOTIFICATIONS_PREFIX;
+        return prefix;
     }
     const safe = username.toLowerCase().replace(/[^a-z0-9@._\\-]/gi, '_');
-    return `${LS_NOTIFICATIONS_PREFIX}:${safe}`;
+    return `${prefix}:${safe}`;
+}
+
+function notificationsStorageKey() {
+    return authScopedStorageKey(LS_NOTIFICATIONS_PREFIX);
+}
+
+function errorsOnlyStorageKey() {
+    return authScopedStorageKey(LS_NOTIFICATIONS_ERRORS_ONLY_PREFIX);
+}
+
+function loadErrorsOnlyPreference() {
+    try {
+        const raw = localStorage.getItem(errorsOnlyStorageKey());
+        showErrorsOnly = raw === '1';
+    } catch (e) {
+        showErrorsOnly = false;
+    }
+}
+
+function persistErrorsOnlyPreference() {
+    try {
+        localStorage.setItem(errorsOnlyStorageKey(), showErrorsOnly ? '1' : '0');
+    } catch (e) {
+        console.error('Erro ao salvar preferência de notificações', e);
+    }
+}
+
+function syncErrorsOnlyFilterUi() {
+    const input = document.getElementById('notifications-errors-only');
+    if (!input) return;
+    input.checked = showErrorsOnly;
+    input.setAttribute('aria-checked', showErrorsOnly ? 'true' : 'false');
+}
+
+function setShowErrorsOnly(value) {
+    const next = Boolean(value);
+    if (showErrorsOnly === next) {
+        syncErrorsOnlyFilterUi();
+        return;
+    }
+    showErrorsOnly = next;
+    persistErrorsOnlyPreference();
+    syncErrorsOnlyFilterUi();
+    updateNotificationBadge();
+    const panel = document.getElementById('notifications-panel');
+    if (panel && !panel.classList.contains('hidden')) {
+        renderNotificationsList();
+    }
+}
+
+function getNotificationsForView() {
+    if (!showErrorsOnly) {
+        return notificationsCache;
+    }
+    return notificationsCache.filter((n) => n.type === 'error');
 }
 
 function loadNotificationsFromStorage() {
@@ -110,7 +167,7 @@ function markAllNotificationsRead() {
 }
 
 function getUnreadCount() {
-    return notificationsCache.filter((n) => !n.read).length;
+    return getNotificationsForView().filter((n) => !n.read).length;
 }
 
 function hasUnreadError() {
@@ -219,10 +276,29 @@ function toastIconSvg(type) {
     return '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--error-color)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>';
 }
 
+function updateNotificationToggleAvailability() {
+    const toggle = document.getElementById('notifications-toggle');
+    if (!toggle) return;
+
+    const hasItems = getNotificationsForView().length > 0;
+    toggle.disabled = !hasItems;
+    if (!hasItems) {
+        toggle.setAttribute('title', 'Sem notificações');
+        toggle.setAttribute('aria-label', 'Sem notificações');
+        closeNotificationsPanel();
+    } else {
+        toggle.setAttribute('title', 'Notificações');
+        toggle.setAttribute('aria-label', 'Notificações');
+    }
+}
+
 function updateNotificationBadge() {
     const badge = document.getElementById('notifications-badge');
     const toggle = document.getElementById('notifications-toggle');
-    if (!badge) return;
+    if (!badge) {
+        updateNotificationToggleAvailability();
+        return;
+    }
 
     const unread = getUnreadCount();
     if (unread === 0) {
@@ -231,18 +307,19 @@ function updateNotificationBadge() {
         if (toggle) {
             toggle.removeAttribute('data-has-error');
         }
-        return;
+    } else {
+        badge.classList.remove('hidden');
+        badge.textContent = unread > 99 ? '99+' : String(unread);
+        badge.classList.toggle('is-error', hasUnreadError());
+
+        if (toggle && hasUnreadError()) {
+            toggle.setAttribute('data-has-error', 'true');
+        } else if (toggle) {
+            toggle.removeAttribute('data-has-error');
+        }
     }
 
-    badge.classList.remove('hidden');
-    badge.textContent = unread > 99 ? '99+' : String(unread);
-    badge.classList.toggle('is-error', hasUnreadError());
-
-    if (toggle && hasUnreadError()) {
-        toggle.setAttribute('data-has-error', 'true');
-    } else if (toggle) {
-        toggle.removeAttribute('data-has-error');
-    }
+    updateNotificationToggleAvailability();
 }
 
 function closeNotificationsPanel() {
@@ -255,7 +332,7 @@ function closeNotificationsPanel() {
 function openNotificationsPanel() {
     const panel = document.getElementById('notifications-panel');
     const toggle = document.getElementById('notifications-toggle');
-    if (!panel || !toggle) return;
+    if (!panel || !toggle || getNotificationsForView().length === 0) return;
 
     if (typeof closeUserMenuDropdown === 'function') {
         closeUserMenuDropdown();
@@ -277,15 +354,19 @@ function renderNotificationsList() {
 
     list.innerHTML = '';
 
-    const hasItems = notificationsCache.length > 0;
+    const visible = getNotificationsForView();
+    const hasVisible = visible.length > 0;
     if (empty) {
-        empty.classList.toggle('hidden', hasItems);
+        empty.classList.toggle('hidden', hasVisible);
+        empty.textContent = showErrorsOnly
+            ? 'Nenhuma notificação de erro'
+            : 'Nenhuma notificação';
     }
     if (clearBtn) {
-        clearBtn.disabled = !hasItems;
+        clearBtn.disabled = notificationsCache.length === 0;
     }
 
-    notificationsCache.forEach((item) => {
+    visible.forEach((item) => {
         const row = document.createElement('article');
         row.className = `notification-item notification-item--${item.type}`;
         if (!item.read) {
@@ -380,6 +461,8 @@ function showToast(title, message, type = 'success', options = null) {
 window.showToast = showToast;
 window.refreshNotificationsStorage = function refreshNotificationsStorage() {
     loadNotificationsFromStorage();
+    loadErrorsOnlyPreference();
+    syncErrorsOnlyFilterUi();
     updateNotificationBadge();
     const panel = document.getElementById('notifications-panel');
     if (panel && !panel.classList.contains('hidden')) {
@@ -416,25 +499,37 @@ function confirmClearAllNotifications() {
 
 function initNotificationsCenter() {
     loadNotificationsFromStorage();
+    loadErrorsOnlyPreference();
 
     const wrap = document.getElementById('notifications-wrap');
     const toggle = document.getElementById('notifications-toggle');
     const panel = document.getElementById('notifications-panel');
     const list = document.getElementById('notifications-list');
     const clearBtn = document.getElementById('notifications-clear-all');
+    const errorsOnlyInput = document.getElementById('notifications-errors-only');
 
     if (!toggle || !panel) {
         updateNotificationBadge();
         return;
     }
 
+    syncErrorsOnlyFilterUi();
     updateNotificationBadge();
     renderNotificationsList();
+
+    if (errorsOnlyInput && !errorsOnlyInput.dataset.bound) {
+        errorsOnlyInput.dataset.bound = '1';
+        errorsOnlyInput.addEventListener('change', (e) => {
+            e.stopPropagation();
+            setShowErrorsOnly(errorsOnlyInput.checked);
+        });
+    }
 
     if (!toggle.dataset.bound) {
         toggle.dataset.bound = '1';
         toggle.addEventListener('click', (e) => {
             e.stopPropagation();
+            if (toggle.disabled) return;
             const isOpen = !panel.classList.contains('hidden');
             if (isOpen) {
                 closeNotificationsPanel();

@@ -148,12 +148,13 @@ func (h *AdminHandler) GetSQL(w http.ResponseWriter, r *http.Request) {
 		respondWithError(w, http.StatusBadRequest, "caminho obrigatório")
 		return
 	}
-	content, err := h.content.ReadSQL(h.cfg.QueriesBasePath, rel)
+	kind := r.URL.Query().Get("kind")
+	content, resolvedKind, err := h.content.ReadModule(h.cfg.QueriesBasePath, rel, kind)
 	if err != nil {
 		respondWithError(w, http.StatusNotFound, err.Error())
 		return
 	}
-	respondWithJSON(w, http.StatusOK, map[string]string{"path": rel, "content": content})
+	respondWithJSON(w, http.StatusOK, map[string]string{"path": rel, "content": content, "kind": resolvedKind})
 }
 
 func (h *AdminHandler) PutSQL(w http.ResponseWriter, r *http.Request) {
@@ -176,8 +177,13 @@ func (h *AdminHandler) PutSQL(w http.ResponseWriter, r *http.Request) {
 	if err := json.Unmarshal(body, &payload); err != nil {
 		payload.Content = string(body)
 	}
-	if err := h.content.WriteSQL(h.cfg.QueriesBasePath, rel, payload.Content); err != nil {
-		respondWithError(w, http.StatusBadRequest, err.Error())
+	kind := r.URL.Query().Get("kind")
+	if err := h.content.WriteSQL(h.cfg.QueriesBasePath, rel, kind, payload.Content); err != nil {
+		status := http.StatusBadRequest
+		if strings.Contains(err.Error(), "já existe um módulo") {
+			status = http.StatusConflict
+		}
+		respondWithError(w, status, err.Error())
 		return
 	}
 	respondWithJSON(w, http.StatusOK, map[string]string{"status": "ok"})

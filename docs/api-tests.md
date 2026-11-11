@@ -8,7 +8,7 @@ Este documento contém os exemplos de requisições `cURL` para você testar os 
 ---
 
 ## 1. Listar todos os Projetos e Módulos
-Este endpoint varre a pasta física configurada (`back/queries`) e retorna todos os projetos e seus respectivos módulos (arquivos `.sql`).
+Este endpoint varre a pasta física configurada (`back/queries`) e retorna todos os projetos e seus respectivos módulos (arquivos `.sql`, `.sh`, `.ps1`). Cada módulo inclui o campo `kind` (`sql`, `sh`, `ps1`).
 
 **Requisição:**
 ```bash
@@ -42,7 +42,13 @@ Este endpoint lê um arquivo `.sql` específico, extrai a seção `--<PROPERTIES
 **Requisição:**
 ```bash
 # Nota: Lembre-se de usar URL Encode para espaços (%20)
-curl -X GET "http://localhost:8080/api/queries/IMS%20Arquivos/Consulta%20de%20Arquivo"
+curl -X GET "http://localhost:8080/api/queries/IMS%20Arquivos/Consulta%20de%20Arquivo?kind=sql"
+```
+
+Para um módulo shell no mesmo padrão de caminho:
+
+```bash
+curl -X GET "http://localhost:8080/api/queries/MeuProjeto/Listar%20Arquivos?kind=sh"
 ```
 
 **Retorno Esperado:**
@@ -74,7 +80,7 @@ Este endpoint recebe os valores preenchidos no formulário pelo usuário, injeta
 
 **Requisição:**
 ```bash
-curl -X POST "http://localhost:8080/api/queries/IMS%20Arquivos/Consulta%20de%20Arquivo" \
+curl -X POST "http://localhost:8080/api/queries/IMS%20Arquivos/Consulta%20de%20Arquivo?kind=sql" \
      -H "Content-Type: application/json" \
      -d '{
            "DT_INICIAL": "2026-04-01",
