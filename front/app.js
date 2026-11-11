@@ -212,6 +212,10 @@ document.addEventListener('DOMContentLoaded', async () => {
             if (gridSearchInput && gridSearchInput.value !== '') {
                 clearGridSearch(false);
             }
+        } else if (e.key === 'F2' && !e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey) {
+            if (tryOpenFormModuleEditFromShortcut()) {
+                e.preventDefault();
+            }
         }
     });
 
@@ -318,7 +322,10 @@ async function loadProjects() {
 }
 
 async function loadFormFields(queryPath, moduleTitle) {
-  if (typeof closeSqlEditor === 'function') {
+    if (typeof confirmCloseSqlEditorIfNeeded === 'function') {
+        const canProceed = await confirmCloseSqlEditorIfNeeded();
+        if (!canProceed) return;
+    } else if (typeof closeSqlEditor === 'function') {
         closeSqlEditor();
     }
     document.getElementById('sql-editor-container')?.classList.add('hidden');
@@ -440,6 +447,15 @@ function treeBadgeHue(name) {
     return hash % 360;
 }
 
+function treeSqlModuleIconMarkup(inlineStyle = '') {
+    const styleAttr = inlineStyle ? ` style="${inlineStyle}"` : '';
+    return `<svg class="tree-icon module-icon sql-module-icon"${styleAttr} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <ellipse cx="12" cy="5" rx="9" ry="3"></ellipse>
+        <path d="M3 5v6c0 1.66 4 3 9 3s9-1.34 9-3V5"></path>
+        <path d="M3 11v6c0 1.66 4 3 9 3s9-1.34 9-3v-6"></path>
+    </svg>`;
+}
+
 function renderTree(nodes, container, isSearching = false) {
     container.innerHTML = ''; // Limpar loading state
 
@@ -554,13 +570,7 @@ function renderTree(nodes, container, isSearching = false) {
                 
                 moduleLink.innerHTML = `
                     <div class="tree-module-info">
-                        <svg class="tree-icon module-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-                            <polyline points="14 2 14 8 20 8"></polyline>
-                            <line x1="16" y1="13" x2="8" y2="13"></line>
-                            <line x1="16" y1="17" x2="8" y2="17"></line>
-                            <polyline points="10 9 9 9 8 9"></polyline>
-                        </svg>
+                        ${treeSqlModuleIconMarkup()}
                         <span class="tree-title">${node.name}</span>
                     </div>
                     <button class="favorite-btn ${isFav ? 'is-favorite' : ''}" data-tooltip="${isFav ? 'Remover dos favoritos' : 'Adicionar aos favoritos'}">
@@ -1516,6 +1526,42 @@ function adminCanEditSql() {
     return Boolean(identity && identity.isAdmin);
 }
 
+function activeFormModuleQueryPath() {
+    const path = currentQueryPath || window.sqlformysActiveQueryPath;
+    return typeof path === 'string' ? path.trim() : '';
+}
+
+function isFormModuleEditContextOpen() {
+    if (!formContainer || formContainer.classList.contains('hidden')) {
+        return false;
+    }
+    const sqlEditor = document.getElementById('sql-editor-container');
+    if (sqlEditor && !sqlEditor.classList.contains('hidden')) {
+        return false;
+    }
+    return Boolean(activeFormModuleQueryPath());
+}
+
+function openFormModuleSqlEditor() {
+    const queryPath = activeFormModuleQueryPath();
+    if (!queryPath || !adminCanEditSql()) {
+        return false;
+    }
+    if (typeof window.openSqlEditor === 'function') {
+        void window.openSqlEditor(API_BASE_URL, queryPath);
+        return true;
+    }
+    showToast('Editor SQL', 'Painel administrativo indisponível.', 'error');
+    return false;
+}
+
+function tryOpenFormModuleEditFromShortcut() {
+    if (!isFormModuleEditContextOpen() || !adminCanEditSql()) {
+        return false;
+    }
+    return openFormModuleSqlEditor();
+}
+
 function syncFormModuleEditButton(queryPath) {
     const formCard = document.getElementById('form-container');
     const header = formCard?.querySelector('.form-card-header');
@@ -1548,11 +1594,7 @@ function syncFormModuleEditButton(queryPath) {
 
     btn.onclick = (e) => {
         e.preventDefault();
-        if (typeof window.openSqlEditor === 'function') {
-            window.openSqlEditor(API_BASE_URL, queryPath);
-        } else {
-            showToast('Editor SQL', 'Painel administrativo indisponível.', 'error');
-        }
+        openFormModuleSqlEditor();
     };
 }
 
@@ -3096,12 +3138,7 @@ function renderFavorites() {
             
             itemEl.innerHTML = `
                 <div class="favorite-item-info">
-                    <svg class="tree-icon module-icon" style="margin-right: 8px; width: 14px; height: 14px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-                        <polyline points="14 2 14 8 20 8"></polyline>
-                        <line x1="16" y1="13" x2="8" y2="13"></line>
-                        <line x1="16" y1="17" x2="8" y2="17"></line>
-                    </svg>
+                    ${treeSqlModuleIconMarkup('margin-right: 8px; width: 14px; height: 14px;')}
                     <span class="favorite-item-title">${moduleNode.name}</span>
                 </div>
                 <button class="favorite-remove-btn" data-tooltip="Remover dos favoritos">

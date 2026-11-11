@@ -4,6 +4,7 @@
 
 let sqlEditorInstance = null;
 let sqlEditorPath = null;
+let sqlEditorBaselineContent = null;
 let adminUsersCache = [];
 
 function resolveAuthIdentity() {
@@ -58,7 +59,10 @@ function openAppModal({ title, body, primaryLabel = 'Confirmar', secondaryLabel 
         if (onSecondary) await onSecondary();
         close();
     };
-    closeBtn.onclick = close;
+    closeBtn.onclick = async () => {
+        if (onSecondary) await onSecondary();
+        close();
+    };
     ok.onclick = async () => {
         if (onPrimary) {
             const done = await onPrimary();
@@ -498,10 +502,15 @@ function ensureSqlEditor() {
     });
 }
 
-function refreshSqlEditorLayout() {
+function refreshSqlEditorLayout({ focus = false } = {}) {
     if (!sqlEditorInstance) return;
     requestAnimationFrame(() => {
         sqlEditorInstance.refresh();
+        if (!focus) return;
+        requestAnimationFrame(() => {
+            sqlEditorInstance.refresh();
+            sqlEditorInstance.focus();
+        });
     });
 }
 
@@ -523,6 +532,7 @@ async function openSqlEditor(apiBaseUrl, relPath, initialContent) {
 
     ensureSqlEditor();
     if (!sqlEditorInstance) return;
+    bindSqlEditorShortcuts(apiBaseUrl);
 
     let content = initialContent;
     if (content === undefined || content === null) {
@@ -535,8 +545,90 @@ async function openSqlEditor(apiBaseUrl, relPath, initialContent) {
         }
     }
     sqlEditorInstance.setValue(content);
+    sqlEditorBaselineContent = content;
     sqlEditorInstance.setOption('theme', codemirrorTheme());
-    refreshSqlEditorLayout();
+    refreshSqlEditorLayout({ focus: true });
+}
+
+function isSqlEditorOpen() {
+    const container = document.getElementById('sql-editor-container');
+    return Boolean(container && !container.classList.contains('hidden'));
+}
+
+function isSqlEditorDirty() {
+    if (!sqlEditorInstance) return false;
+    return sqlEditorInstance.getValue() !== (sqlEditorBaselineContent ?? '');
+}
+
+function confirmCloseSqlEditorIfNeeded() {
+    return new Promise((resolve) => {
+        let settled = false;
+        const finish = (proceed) => {
+            if (settled) return;
+            settled = true;
+            resolve(proceed);
+        };
+        if (!isSqlEditorOpen()) {
+            finish(true);
+            return;
+        }
+        if (!isSqlEditorDirty()) {
+            closeSqlEditor();
+            finish(true);
+            return;
+        }
+        openAppModal({
+            title: 'Descartar alterações?',
+            body: 'O conteúdo foi alterado e ainda não foi salvo. Se sair agora, as alterações serão perdidas. Deseja realmente sair?',
+            primaryLabel: 'Sair sem salvar',
+            secondaryLabel: 'Continuar editando',
+            onPrimary: async () => {
+                closeSqlEditor();
+                finish(true);
+                return true;
+            },
+            onSecondary: async () => {
+                finish(false);
+            }
+        });
+    });
+}
+
+function requestCloseSqlEditor() {
+    void confirmCloseSqlEditorIfNeeded();
+}
+
+async function saveSqlEditorContent(apiBaseUrl) {
+    if (!sqlEditorPath || !sqlEditorInstance || !isSqlEditorOpen()) return;
+    const content = sqlEditorInstance.getValue();
+    const res = await apiFetch(adminSqlUrl(apiBaseUrl, sqlEditorPath), {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content })
+    });
+    if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        showToast('Editor SQL', data.error || 'Falha ao salvar.', 'error');
+        return;
+    }
+    sqlEditorBaselineContent = content;
+    showToast('Editor SQL', 'Arquivo salvo.', 'success');
+    const savedPath = sqlEditorPath;
+    await loadProjects();
+    await reloadModuleFormAfterSqlSave(savedPath);
+}
+
+function bindSqlEditorShortcuts(apiBaseUrl) {
+    ensureSqlEditor();
+    if (!sqlEditorInstance) return;
+    sqlEditorInstance.setOption('extraKeys', {
+        'Ctrl-S'() {
+            void saveSqlEditorContent(apiBaseUrl);
+        },
+        Esc() {
+            requestCloseSqlEditor();
+        }
+    });
 }
 
 function moduleTitleForPath(path) {
@@ -563,6 +655,7 @@ function closeSqlEditor() {
     const container = document.getElementById('sql-editor-container');
     container?.classList.add('hidden');
     sqlEditorPath = null;
+    sqlEditorBaselineContent = null;
     const path = window.sqlformysActiveQueryPath;
     const formContainer = document.getElementById('form-container');
     const gridContainer = document.getElementById('grid-container');
@@ -627,32 +720,19 @@ function initAdminPanel(identity, apiBaseUrl) {
 
     fetchAdminUsers(apiBaseUrl);
 
+    bindSqlEditorShortcuts(apiBaseUrl);
+
     const saveBtn = document.getElementById('sql-editor-save');
     const cancelBtn = document.getElementById('sql-editor-cancel');
     if (saveBtn && !saveBtn.dataset.bound) {
         saveBtn.dataset.bound = '1';
-        saveBtn.addEventListener('click', async () => {
-            if (!sqlEditorPath || !sqlEditorInstance) return;
-            const content = sqlEditorInstance.getValue();
-            const res = await apiFetch(adminSqlUrl(apiBaseUrl, sqlEditorPath), {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ content })
-            });
-            if (!res.ok) {
-                const data = await res.json().catch(() => ({}));
-                showToast('Editor SQL', data.error || 'Falha ao salvar.', 'error');
-                return;
-            }
-            showToast('Editor SQL', 'Arquivo salvo.', 'success');
-            const savedPath = sqlEditorPath;
-            await loadProjects();
-            await reloadModuleFormAfterSqlSave(savedPath);
+        saveBtn.addEventListener('click', () => {
+            void saveSqlEditorContent(apiBaseUrl);
         });
     }
     if (cancelBtn && !cancelBtn.dataset.bound) {
         cancelBtn.dataset.bound = '1';
-        cancelBtn.addEventListener('click', closeSqlEditor);
+        cancelBtn.addEventListener('click', requestCloseSqlEditor);
     }
 
     if (typeof window.addEventListener === 'function') {
@@ -698,3 +778,4 @@ window.isAdminUser = isAdminUser;
 window.openSqlEditor = openSqlEditor;
 window.fetchAdminUsers = fetchAdminUsers;
 window.closeSqlEditor = closeSqlEditor;
+window.confirmCloseSqlEditorIfNeeded = confirmCloseSqlEditorIfNeeded;
