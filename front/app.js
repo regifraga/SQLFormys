@@ -17,6 +17,9 @@ const btnExecute = document.getElementById('btn-execute');
 const toastContainer = document.getElementById('toast-container');
 const searchInput = document.getElementById('search-modules');
 const clearSearchBtn = document.getElementById('clear-search');
+const toggleSidebarFoldersBtn = document.getElementById('toggle-sidebar-folders');
+const favoritesToggleBtn = document.getElementById('sidebar-favorites-toggle');
+const favoritesPanelEl = document.getElementById('sidebar-favorites-panel');
 
 // Elementos da Grid
 const gridContainer = document.getElementById('grid-container');
@@ -64,6 +67,19 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
         return;
     }
+
+    if (typeof loadUserSettings === 'function') {
+        await loadUserSettings(API_BASE_URL);
+        const prefs = typeof getSettingsCache === 'function' ? getSettingsCache() : null;
+        if (prefs && prefs.theme && typeof applyTheme === 'function') {
+            applyTheme(prefs.theme, { persist: false });
+        }
+        if (typeof applySavedSidebarWidth === 'function') {
+            applySavedSidebarWidth();
+        }
+    }
+
+    initSidebarFolderControls();
     loadProjects();
 
     // Event Listeners
@@ -76,24 +92,36 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // Lógica de Redimensionamento da Sidebar
     let isResizing = false;
+    let sidebarResizeDidMove = false;
+    let sidebarResizeStartX = 0;
 
     if (sidebarResizer) {
         sidebarResizer.addEventListener('mousedown', (e) => {
             e.preventDefault();
             isResizing = true;
+            sidebarResizeDidMove = false;
+            sidebarResizeStartX = e.clientX;
             document.body.classList.add('is-resizing');
         });
 
         document.addEventListener('mousemove', (e) => {
             if (!isResizing) return;
+
+            if (Math.abs(e.clientX - sidebarResizeStartX) > 4) {
+                sidebarResizeDidMove = true;
+            }
             
             let newWidth = e.clientX;
-            const minWidth = 200;
-            const maxWidth = Math.min(600, window.innerWidth * 0.5);
-            
-            if (newWidth < minWidth) newWidth = minWidth;
-            if (newWidth > maxWidth) newWidth = maxWidth;
-            
+            if (typeof clampSidebarWidth === 'function') {
+                newWidth = clampSidebarWidth(newWidth, { forDrag: true });
+            } else {
+                const minWidth = 200;
+                const maxWidth = Math.min(600, window.innerWidth * 0.5);
+                if (newWidth < minWidth) newWidth = minWidth;
+                if (newWidth > maxWidth) newWidth = maxWidth;
+            }
+            if (newWidth == null) return;
+
             document.documentElement.style.setProperty('--sidebar-width', `${newWidth}px`);
         });
 
@@ -101,6 +129,14 @@ document.addEventListener('DOMContentLoaded', async () => {
             if (isResizing) {
                 isResizing = false;
                 document.body.classList.remove('is-resizing');
+                if (sidebarResizeDidMove) {
+                    const raw = getComputedStyle(document.documentElement).getPropertyValue('--sidebar-width');
+                    const width = parseInt(raw, 10);
+                    if (!Number.isNaN(width) && typeof saveSidebarWidth === 'function') {
+                        saveSidebarWidth(width);
+                    }
+                }
+                sidebarResizeDidMove = false;
             }
         });
     }
@@ -460,19 +496,23 @@ function renderTree(nodes, container, isSearching = false) {
                 const childrenContainer = document.createElement('div');
                 childrenContainer.className = 'tree-folder-content';
 
-                // Nível 0 aberto por padrão ou todos abertos se buscando
-                if (level === 0 || isSearching) {
-                    childrenContainer.classList.add('open');
-                    folderHeader.classList.add('active');
-                }
-
                 const folderRel = parentRelPath ? `${parentRelPath}/${node.name}` : node.name;
+                const folderId = `tree:${folderRel}`;
+                childrenContainer.dataset.sidebarFolderId = folderId;
+
                 if (typeof attachFolderAdminActions === 'function') {
                     attachFolderAdminActions(folderHeader, folderRel, node.name, API_BASE_URL);
                 }
 
                 if (node.children && node.children.length > 0) {
                     buildSubTree(node.children, childrenContainer, level + 1, folderRel);
+                }
+
+                const shouldOpen = isSearching
+                    || (typeof isSidebarFolderExpanded === 'function' && isSidebarFolderExpanded(folderId));
+                if (shouldOpen) {
+                    childrenContainer.classList.add('open');
+                    folderHeader.classList.add('active');
                 }
 
                 folderHeader.addEventListener('click', () => {
@@ -482,15 +522,17 @@ function renderTree(nodes, container, isSearching = false) {
                         toggleBtn.setAttribute('aria-expanded', 'true');
                         childrenContainer.classList.add('open');
                         folderHeader.classList.add('active');
+                        if (typeof setSidebarFolderExpanded === 'function') {
+                            setSidebarFolderExpanded(folderId, true);
+                        }
                         return;
                     }
                     const isOpen = childrenContainer.classList.contains('open');
-                    if (isOpen) {
-                        childrenContainer.classList.remove('open');
-                        folderHeader.classList.remove('active');
-                    } else {
-                        childrenContainer.classList.add('open');
-                        folderHeader.classList.add('active');
+                    const willOpen = !isOpen;
+                    childrenContainer.classList.toggle('open', willOpen);
+                    folderHeader.classList.toggle('active', willOpen);
+                    if (typeof setSidebarFolderExpanded === 'function') {
+                        setSidebarFolderExpanded(folderId, willOpen);
                     }
                 });
 
@@ -502,6 +544,7 @@ function renderTree(nodes, container, isSearching = false) {
                 moduleLink.className = 'tree-module-link module-link';
                 moduleLink.dataset.path = node.path;
                 moduleLink.style.paddingLeft = `${16 + (level * 16)}px`;
+                moduleLink.setAttribute('data-tooltip', node.name);
                 
                 const isFav = getFavorites().includes(node.path);
                 const isActive = (node.path === currentQueryPath);
@@ -554,6 +597,10 @@ function renderTree(nodes, container, isSearching = false) {
 
     buildSubTree(nodes, treeContainer, 0, '');
     container.appendChild(treeContainer);
+
+    if (typeof applySidebarExpandedToDOM === 'function') {
+        applySidebarExpandedToDOM();
+    }
 }
 
 /* ==========================================================================
@@ -2576,6 +2623,12 @@ function positionAppTooltip(trigger) {
     }
 }
 
+function shouldShowAppTooltip(trigger) {
+    if (!trigger) return false;
+    const text = trigger.getAttribute('data-tooltip');
+    return Boolean(text && String(text).trim());
+}
+
 function hideAppTooltip() {
     clearTimeout(appTooltipShowTimer);
     appTooltipShowTimer = null;
@@ -2589,6 +2642,10 @@ function hideAppTooltip() {
 }
 
 function showAppTooltip(trigger) {
+    if (!shouldShowAppTooltip(trigger)) {
+        hideAppTooltip();
+        return;
+    }
     const text = trigger.getAttribute('data-tooltip');
     if (!text) return;
 
@@ -2601,13 +2658,19 @@ function showAppTooltip(trigger) {
 }
 
 function scheduleAppTooltip(trigger) {
+    if (!shouldShowAppTooltip(trigger)) {
+        hideAppTooltip();
+        return;
+    }
     if (appTooltipTrigger === trigger) return;
 
     clearTimeout(appTooltipShowTimer);
     hideAppTooltip();
 
     appTooltipShowTimer = setTimeout(() => {
-        showAppTooltip(trigger);
+        if (shouldShowAppTooltip(trigger)) {
+            showAppTooltip(trigger);
+        }
     }, 350);
 }
 
@@ -2837,33 +2900,104 @@ function filterTree(nodes, searchTerm) {
 }
 
 /* ==========================================================================
-   Gerenciamento de Favoritos (LocalStorage, por usuário)
+   Gerenciamento de Favoritos e pastas do menu lateral
    ========================================================================== */
-function favoritesStorageKey() {
-    const id = typeof getAuthIdentity === 'function' ? getAuthIdentity() : null;
-    const username = id && id.username ? String(id.username).trim() : '';
-    if (!username) {
-        return 'sqlformys_favorites';
-    }
-    const safe = username.toLowerCase().replace(/[^a-z0-9@._\\-]/gi, '_');
-    return `sqlformys_favorites:${safe}`;
-}
-
 function getFavorites() {
-    try {
-        const stored = localStorage.getItem(favoritesStorageKey());
-        return stored ? JSON.parse(stored) : [];
-    } catch (e) {
-        console.error('Erro ao ler favoritos do LocalStorage', e);
-        return [];
+    if (typeof getFavoritesFromSettings === 'function') {
+        return getFavoritesFromSettings();
     }
+    return [];
 }
 
 function saveFavorites(favorites) {
-    try {
-        localStorage.setItem(favoritesStorageKey(), JSON.stringify(favorites));
-    } catch (e) {
-        console.error('Erro ao salvar favoritos no LocalStorage', e);
+    if (typeof saveFavoritesToSettings === 'function') {
+        saveFavoritesToSettings(favorites);
+    }
+}
+
+function collectTreeFolderIds(nodes, parentRel = '') {
+    const ids = [];
+    if (!nodes) return ids;
+    nodes.forEach((node) => {
+        if (node.type === 'folder') {
+            const rel = parentRel ? `${parentRel}/${node.name}` : node.name;
+            ids.push(`tree:${rel}`);
+            ids.push(...collectTreeFolderIds(node.children, rel));
+        }
+    });
+    return ids;
+}
+
+function collectAllSidebarFolderIds() {
+    const ids = ['users', 'users:padrao', 'users:administradores'];
+    const favContainer = document.getElementById('sidebar-favorites-container');
+    if (favContainer && !favContainer.classList.contains('hidden')) {
+        ids.push('favorites');
+    }
+    ids.push(...collectTreeFolderIds(allProjects));
+    return ids;
+}
+
+function setAllSidebarFoldersExpanded(expand) {
+    const ids = expand ? collectAllSidebarFolderIds() : [];
+    if (typeof setSidebarExpandedAll === 'function') {
+        setSidebarExpandedAll(ids);
+    }
+    const term = searchInput ? searchInput.value.trim() : '';
+    if (term !== '') {
+        const filtered = filterTree(allProjects, term);
+        renderTree(filtered, treeNavigation, true);
+    } else {
+        renderTree(allProjects, treeNavigation, false);
+    }
+    if (typeof renderAdminUsersPanel === 'function') {
+        renderAdminUsersPanel(API_BASE_URL);
+    }
+    renderFavorites();
+    if (typeof applySidebarExpandedToDOM === 'function') {
+        applySidebarExpandedToDOM();
+    }
+    updateExpandCollapseAllButton();
+}
+
+function updateExpandCollapseAllButton() {
+    if (!toggleSidebarFoldersBtn) return;
+    const anyOpen = typeof anySidebarFolderExpanded === 'function' && anySidebarFolderExpanded();
+    const expand = !anyOpen;
+    toggleSidebarFoldersBtn.setAttribute(
+        'aria-label',
+        expand ? 'Expandir todas as pastas' : 'Recolher todas as pastas'
+    );
+    toggleSidebarFoldersBtn.setAttribute('aria-expanded', expand ? 'false' : 'true');
+    toggleSidebarFoldersBtn.title = expand ? 'Expandir todas as pastas' : 'Recolher todas as pastas';
+    const iconExpand = toggleSidebarFoldersBtn.querySelector('.sidebar-folders-icon-expand');
+    const iconCollapse = toggleSidebarFoldersBtn.querySelector('.sidebar-folders-icon-collapse');
+    if (iconExpand) iconExpand.classList.toggle('hidden', !expand);
+    if (iconCollapse) iconCollapse.classList.toggle('hidden', expand);
+}
+
+window.updateExpandCollapseAllButton = updateExpandCollapseAllButton;
+window.setAllSidebarFoldersExpanded = setAllSidebarFoldersExpanded;
+
+function initSidebarFolderControls() {
+    if (favoritesToggleBtn && favoritesPanelEl) {
+        favoritesToggleBtn.addEventListener('click', () => {
+            const open = !favoritesPanelEl.classList.contains('open');
+            if (typeof setSidebarFolderExpanded === 'function') {
+                setSidebarFolderExpanded('favorites', open);
+            }
+        });
+        if (typeof syncSidebarFolderPanel === 'function') {
+            syncSidebarFolderPanel(favoritesPanelEl, favoritesToggleBtn, 'favorites');
+        }
+    }
+
+    if (toggleSidebarFoldersBtn) {
+        toggleSidebarFoldersBtn.addEventListener('click', () => {
+            const expand = !(typeof anySidebarFolderExpanded === 'function' && anySidebarFolderExpanded());
+            setAllSidebarFoldersExpanded(expand);
+        });
+        updateExpandCollapseAllButton();
     }
 }
 
@@ -2940,6 +3074,10 @@ function renderFavorites() {
     
     container.classList.remove('hidden');
     listContainer.innerHTML = '';
+
+    if (favoritesToggleBtn && favoritesPanelEl && typeof syncSidebarFolderPanel === 'function') {
+        syncSidebarFolderPanel(favoritesPanelEl, favoritesToggleBtn, 'favorites');
+    }
     
     const modulesMap = getAllModulesMap(allProjects);
     
@@ -2951,6 +3089,7 @@ function renderFavorites() {
         if (moduleNode) {
             // Favorito disponível
             itemEl.className = 'favorite-item';
+            itemEl.setAttribute('data-tooltip', moduleNode.name);
             if (currentQueryPath === path) {
                 itemEl.classList.add('active');
             }
@@ -2963,7 +3102,7 @@ function renderFavorites() {
                         <line x1="16" y1="13" x2="8" y2="13"></line>
                         <line x1="16" y1="17" x2="8" y2="17"></line>
                     </svg>
-                    <span class="favorite-item-title" data-tooltip="${moduleNode.name}">${moduleNode.name}</span>
+                    <span class="favorite-item-title">${moduleNode.name}</span>
                 </div>
                 <button class="favorite-remove-btn" data-tooltip="Remover dos favoritos">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -2980,9 +3119,9 @@ function renderFavorites() {
         } else {
             // Favorito indisponível
             itemEl.className = 'favorite-item unavailable';
-            itemEl.setAttribute('data-tooltip', `Este módulo não está mais disponível no caminho: ${path}`);
-            
             const displayName = path.split('/').pop() || path;
+            const unavailableTip = `Este módulo não está mais disponível no caminho: ${path}`;
+            itemEl.setAttribute('data-tooltip', unavailableTip);
             
             itemEl.innerHTML = `
                 <div class="favorite-item-info">
@@ -2991,7 +3130,7 @@ function renderFavorites() {
                         <line x1="12" y1="9" x2="12" y2="13"></line>
                         <line x1="12" y1="17" x2="12.01" y2="17"></line>
                     </svg>
-                    <span class="favorite-item-title" data-tooltip="${path}">${displayName} (Indisponível)</span>
+                    <span class="favorite-item-title">${displayName} (Indisponível)</span>
                 </div>
                 <button class="favorite-remove-btn" data-tooltip="Remover dos favoritos">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">

@@ -76,11 +76,13 @@ services:
       - HTPASSWD_PATH=/app/secrets/htpasswd
       - ADMINISTRATORS=${ADMINISTRATORS:-}
       - ADMINISTRATORS_FILE=/app/secrets/administrators
+      - USER_SETTINGS_PATH=/app/user-settings
     volumes:
       - ./back/queries:/app/queries
       - ${LOG_HOST_PATH:-./logs}:/app/logs
       - ${NGINX_BASIC_AUTH_HTPASSWD_HOST_PATH:-./front/secrets/htpasswd}:/app/secrets/htpasswd
       - ${ADMINISTRATORS_HOST_PATH:-./administrators}:/app/secrets/administrators
+      - ${USER_SETTINGS_HOST_PATH:-./user-settings}:/app/user-settings
 
   #---------------------------------------------------------
   # Frontend Web (NGINX)

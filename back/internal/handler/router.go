@@ -24,6 +24,8 @@ func NewRouter(cfg *config.Config, acc *accounts.Service) *http.ServeMux {
 
 	mux.HandleFunc("GET /api/auth/me", authHandler.Me)
 	mux.HandleFunc("POST /api/auth/password", authHandler.ChangePassword)
+	mux.HandleFunc("GET /api/me/settings", authHandler.GetMySettings)
+	mux.HandleFunc("PUT /api/me/settings", authHandler.PutMySettings)
 	mux.HandleFunc("GET /api/version", metaHandler.Version)
 
 	mux.HandleFunc("GET /api/admin/users", adminHandler.ListUsers)

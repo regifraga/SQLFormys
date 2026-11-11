@@ -47,6 +47,10 @@
     --table-header-text: var(--text-secondary);
     --table-header-icon: var(--text-muted);
 
+    --btn-primary-bg: var(--primary-color);
+    --btn-primary-hover: var(--primary-hover);
+    --btn-primary-text: #ffffff;
+
     /* Layout */
     --sidebar-width: 300px;
     --header-height: 60px;
@@ -89,6 +93,11 @@
     --table-header-bg: #334155;
     --table-header-text: #e2e8f0;
     --table-header-icon: #cbd5e1;
+
+    /* Primário em links/destaques permanece claro; botões usam azul mais profundo */
+    --btn-primary-bg: #2563eb;
+    --btn-primary-hover: #1d4ed8;
+    --btn-primary-text: #f8fafc;
 }
 
 /* ==========================================================================
@@ -323,6 +332,13 @@ select {
     justify-content: space-between;
 }
 
+.sidebar-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+}
+
 .menu-label {
     font-size: 0.75rem;
     font-weight: 600;
@@ -546,6 +562,7 @@ body.is-resizing .main-content {
 
 .tree-title {
     flex: 1;
+    min-width: 0;
     text-align: left;
     white-space: nowrap;
     overflow: hidden;
@@ -580,10 +597,11 @@ body.is-resizing .main-content {
 }
 
 .tree-module-link {
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     display: flex;
     align-items: center;
     justify-content: space-between;
+    min-width: 0;
     padding: 8px 12px;
     color: var(--text-secondary);
     font-size: 0.875rem;
@@ -1226,13 +1244,29 @@ body.is-resizing .main-content {
 }
 
 .btn-primary {
-    background-color: var(--primary-color);
-    color: var(--text-light);
+    background-color: var(--btn-primary-bg);
+    color: var(--btn-primary-text);
+    border: 1px solid transparent;
 }
 
 .btn-primary:hover {
-    background-color: var(--primary-hover);
+    background-color: var(--btn-primary-hover);
+    color: var(--btn-primary-text);
     box-shadow: var(--shadow-sm);
+}
+
+.btn-primary:focus-visible {
+    outline: 2px solid var(--primary-color);
+    outline-offset: 2px;
+}
+
+[data-theme="dark"] .btn-secondary {
+    background-color: var(--bg-main);
+    border-color: var(--border-color-strong);
+}
+
+[data-theme="dark"] .btn-secondary:hover {
+    background-color: #334155;
 }
 
 .btn-secondary {
@@ -1578,8 +1612,49 @@ body.is-resizing .main-content {
 .favorites-header {
     display: flex;
     align-items: center;
-    padding: 4px 8px;
-    margin-bottom: 4px;
+    gap: 6px;
+    width: 100%;
+    padding: 6px 8px;
+    margin-bottom: 0;
+    border-radius: 6px;
+    font-size: inherit;
+    color: var(--text-muted);
+    text-align: left;
+    transition: background-color 0.15s ease;
+}
+
+.favorites-header:hover {
+    background-color: var(--bg-main);
+    color: var(--text-primary);
+}
+
+.favorites-header.is-open .tree-admin-chevron {
+    transform: rotate(180deg);
+}
+
+.favorites-panel {
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height 0.25s ease;
+}
+
+.favorites-panel.open {
+    max-height: 800px;
+    padding-top: 4px;
+}
+
+.sidebar-folder-panel {
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height 0.25s ease;
+}
+
+.sidebar-folder-panel.open {
+    max-height: 1200px;
+}
+
+.sidebar-folder-toggle.is-open .tree-admin-chevron {
+    transform: rotate(180deg);
 }
 
 .favorites-label {
@@ -1916,18 +1991,40 @@ body.is-resizing .main-content {
     margin-bottom: 8px;
 }
 
+.tree-admin-users-toggle {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    padding: 4px 2px;
+    border-radius: 6px;
+    text-align: left;
+    font: inherit;
+    color: var(--text-muted);
+    transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.tree-admin-users-toggle:hover {
+    background-color: var(--bg-surface);
+    color: var(--text-primary);
+}
+
 .tree-admin-users-title {
     font-size: 0.7rem;
     font-weight: 600;
     letter-spacing: 0.08em;
     text-transform: uppercase;
-    color: var(--text-muted);
+    color: inherit;
 }
 
 .tree-admin-users-body {
     display: flex;
     flex-direction: column;
     gap: 6px;
+}
+
+.tree-admin-users-body.sidebar-folder-panel:not(.open) {
+    margin-bottom: 0;
 }
 
 .tree-admin-group-head {
@@ -1997,7 +2094,8 @@ body.is-resizing .main-content {
     transition: max-height 0.25s ease;
 }
 
-.tree-admin-group-panel.open {
+.tree-admin-group-panel.open,
+.tree-admin-group-panel.sidebar-folder-panel.open {
     max-height: 480px;
 }
 

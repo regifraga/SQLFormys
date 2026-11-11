@@ -12,6 +12,7 @@ import (
 	"sqlformys/internal/config"
 	"sqlformys/internal/htpasswd"
 	"sqlformys/internal/security"
+	"sqlformys/internal/usersettings"
 )
 
 // UserView is returned to API consumers.
@@ -25,6 +26,7 @@ type Service struct {
 	ht   *htpasswd.Store
 	adm  *admin.Registry
 	cfg  *config.Config
+	user *usersettings.Store
 }
 
 func NewService(cfg *config.Config) (*Service, error) {
@@ -35,9 +37,10 @@ func NewService(cfg *config.Config) (*Service, error) {
 	}
 
 	svc := &Service{
-		ht:  htpasswd.NewStore(htPath),
-		adm: admin.NewRegistry(adminPath, cfg.AdministratorsSeed),
-		cfg: cfg,
+		ht:   htpasswd.NewStore(htPath),
+		adm:  admin.NewRegistry(adminPath, cfg.AdministratorsSeed),
+		cfg:  cfg,
+		user: usersettings.NewStore(cfg.UserSettingsPath),
 	}
 
 	if err := svc.adm.Bootstrap(); err != nil {
@@ -48,6 +51,13 @@ func NewService(cfg *config.Config) (*Service, error) {
 
 func (s *Service) CanChangePassword() bool {
 	return s != nil && s.ht != nil && s.ht.Available()
+}
+
+func (s *Service) UserSettings() *usersettings.Store {
+	if s == nil {
+		return nil
+	}
+	return s.user
 }
 
 func (s *Service) IsAdmin(username string) bool {
@@ -107,7 +117,12 @@ func (s *Service) CreateUser(username, password string, asAdmin bool) error {
 		return err
 	}
 	if asAdmin {
-		return s.adm.SetAdmin(username, true)
+		if err := s.adm.SetAdmin(username, true); err != nil {
+			return err
+		}
+	}
+	if s.user != nil && s.user.Available() {
+		return s.user.Ensure(username)
 	}
 	return nil
 }
@@ -130,6 +145,11 @@ func (s *Service) UpdateUser(oldName, newName, newPassword string, asAdmin *bool
 		}
 		if err := s.adm.Rename(oldName, newName); err != nil {
 			return err
+		}
+		if s.user != nil && s.user.Available() {
+			if err := s.user.Rename(oldName, newName); err != nil {
+				return err
+			}
 		}
 		oldName = newName
 	}
@@ -163,7 +183,13 @@ func (s *Service) DeleteUser(username, actor string) error {
 	if err := s.ht.DeleteUser(username); err != nil {
 		return err
 	}
-	return s.adm.Remove(username)
+	if err := s.adm.Remove(username); err != nil {
+		return err
+	}
+	if s.user != nil && s.user.Available() {
+		return s.user.Delete(username)
+	}
+	return nil
 }
 
 func (s *Service) EnsureHtpasswdFile() error {

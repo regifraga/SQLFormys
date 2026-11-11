@@ -109,6 +109,10 @@ const ICON_TRASH = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" 
 
 const ICON_CHEVRON = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="6 9 12 15 18 9"></polyline></svg>';
 
+function adminGroupFolderId(groupName) {
+    return groupName === 'Administradores' ? 'users:administradores' : 'users:padrao';
+}
+
 function userDisplayInitial(username) {
     const s = String(username || '').trim();
     return (s.charAt(0) || '?').toUpperCase();
@@ -169,10 +173,13 @@ function renderAdminUserGroup(apiBaseUrl, group) {
     const head = document.createElement('div');
     head.className = 'tree-admin-group-head';
 
+    const folderId = adminGroupFolderId(group.name);
+
     const toggle = document.createElement('button');
     toggle.type = 'button';
-    toggle.className = 'tree-admin-group-toggle is-open';
-    toggle.setAttribute('aria-expanded', 'true');
+    toggle.className = 'tree-admin-group-toggle sidebar-folder-toggle';
+    toggle.dataset.sidebarFolderId = folderId;
+    toggle.setAttribute('aria-expanded', 'false');
     toggle.innerHTML = `
         <span class="tree-admin-chevron">${ICON_CHEVRON}</span>
         <span class="tree-admin-group-name">${group.name}</span>
@@ -187,7 +194,8 @@ function renderAdminUserGroup(apiBaseUrl, group) {
     head.appendChild(addBtn);
 
     const panel = document.createElement('div');
-    panel.className = 'tree-admin-group-panel open';
+    panel.className = 'tree-admin-group-panel sidebar-folder-panel';
+    panel.dataset.sidebarFolderId = folderId;
 
     if (users.length === 0) {
         const empty = document.createElement('p');
@@ -202,13 +210,21 @@ function renderAdminUserGroup(apiBaseUrl, group) {
     }
 
     toggle.addEventListener('click', () => {
-        const open = panel.classList.toggle('open');
-        toggle.classList.toggle('is-open', open);
-        toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+        const willOpen = !panel.classList.contains('open');
+        if (typeof setSidebarFolderExpanded === 'function') {
+            setSidebarFolderExpanded(folderId, willOpen);
+        } else {
+            panel.classList.toggle('open', willOpen);
+            toggle.classList.toggle('is-open', willOpen);
+            toggle.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+        }
     });
 
     groupEl.appendChild(head);
     groupEl.appendChild(panel);
+    if (typeof syncSidebarFolderPanel === 'function') {
+        syncSidebarFolderPanel(panel, toggle, folderId);
+    }
     return groupEl;
 }
 
@@ -233,11 +249,32 @@ function renderAdminUsersTree(parentEl, apiBaseUrl) {
 
     const head = document.createElement('div');
     head.className = 'tree-admin-users-head';
-    head.innerHTML = '<span class="tree-admin-users-title">Usuários</span>';
+
+    const usersToggle = document.createElement('button');
+    usersToggle.type = 'button';
+    usersToggle.className = 'tree-admin-users-toggle sidebar-folder-toggle';
+    usersToggle.dataset.sidebarFolderId = 'users';
+    usersToggle.setAttribute('aria-expanded', 'false');
+    usersToggle.innerHTML = `
+        <span class="tree-admin-chevron">${ICON_CHEVRON}</span>
+        <span class="tree-admin-users-title">Usuários</span>`;
+    head.appendChild(usersToggle);
     section.appendChild(head);
 
     const body = document.createElement('div');
-    body.className = 'tree-admin-users-body';
+    body.className = 'tree-admin-users-body sidebar-folder-panel';
+    body.dataset.sidebarFolderId = 'users';
+
+    usersToggle.addEventListener('click', () => {
+        const willOpen = !body.classList.contains('open');
+        if (typeof setSidebarFolderExpanded === 'function') {
+            setSidebarFolderExpanded('users', willOpen);
+        } else {
+            body.classList.toggle('open', willOpen);
+            usersToggle.classList.toggle('is-open', willOpen);
+            usersToggle.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+        }
+    });
 
     const groups = [
         { name: 'Padrão', filter: (u) => !u.admin },
@@ -247,6 +284,13 @@ function renderAdminUsersTree(parentEl, apiBaseUrl) {
 
     section.appendChild(body);
     parentEl.appendChild(section);
+
+    if (typeof syncSidebarFolderPanel === 'function') {
+        syncSidebarFolderPanel(body, usersToggle, 'users');
+    }
+    if (typeof applySidebarExpandedToDOM === 'function') {
+        applySidebarExpandedToDOM();
+    }
 }
 
 function openUserFormModal(apiBaseUrl, opts = {}) {

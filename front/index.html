@@ -85,13 +85,25 @@
         <aside class="sidebar" id="sidebar">
             <div class="sidebar-header">
                 <span class="menu-label">MENU</span>
-                <button id="toggle-sidebar" class="icon-btn" aria-label="Recolher Menu" aria-expanded="true">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <line x1="3" y1="12" x2="21" y2="12"></line>
-                        <line x1="3" y1="6" x2="21" y2="6"></line>
-                        <line x1="3" y1="18" x2="21" y2="18"></line>
-                    </svg>
-                </button>
+                <div class="sidebar-header-actions">
+                    <button type="button" id="toggle-sidebar-folders" class="icon-btn" aria-label="Expandir todas as pastas" aria-expanded="false" title="Expandir todas as pastas">
+                        <svg class="sidebar-folders-icon-expand" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <polyline points="7 13 12 18 17 13"></polyline>
+                            <polyline points="7 6 12 11 17 6"></polyline>
+                        </svg>
+                        <svg class="sidebar-folders-icon-collapse hidden" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <polyline points="17 11 12 6 7 11"></polyline>
+                            <polyline points="17 18 12 13 7 18"></polyline>
+                        </svg>
+                    </button>
+                    <button type="button" id="toggle-sidebar" class="icon-btn" aria-label="Recolher Menu" aria-expanded="true">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <line x1="3" y1="12" x2="21" y2="12"></line>
+                            <line x1="3" y1="6" x2="21" y2="6"></line>
+                            <line x1="3" y1="18" x2="21" y2="18"></line>
+                        </svg>
+                    </button>
+                </div>
             </div>
 
             <!-- Gestão de usuários (admin) -->
@@ -116,11 +128,14 @@
             
             <!-- Área de Favoritos -->
             <div class="sidebar-favorites hidden" id="sidebar-favorites-container">
-                <div class="favorites-header">
+                <button type="button" class="favorites-header sidebar-folder-toggle" id="sidebar-favorites-toggle" data-sidebar-folder-id="favorites" aria-expanded="false">
+                    <svg class="tree-admin-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="6 9 12 15 18 9"></polyline></svg>
                     <span class="favorites-label">Favoritos</span>
-                </div>
-                <div class="favorites-list" id="sidebar-favorites-list">
-                    <!-- Preenchido via Javascript -->
+                </button>
+                <div class="favorites-panel sidebar-folder-panel" id="sidebar-favorites-panel" data-sidebar-folder-id="favorites">
+                    <div class="favorites-list" id="sidebar-favorites-list">
+                        <!-- Preenchido via Javascript -->
+                    </div>
                 </div>
             </div>
             
@@ -262,6 +277,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/sql/sql.min.js"></script>
     <script src="theme.js"></script>
     <script src="auth.js"></script>
+    <script src="user-settings.js"></script>
     <script src="user-menu.js"></script>
     <script src="admin-panel.js?v=form-module-edit-1"></script>
     <script src="app.js?v=form-module-edit-1"></script>

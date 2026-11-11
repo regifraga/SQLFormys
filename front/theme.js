@@ -22,10 +22,14 @@ function resolveInitialTheme() {
     return 'light';
 }
 
-function applyTheme(theme) {
+function applyTheme(theme, options = {}) {
+    const persist = options.persist !== false;
     const next = theme === 'dark' ? 'dark' : 'light';
     document.documentElement.setAttribute('data-theme', next);
     localStorage.setItem(THEME_STORAGE_KEY, next);
+    if (persist && typeof patchUserSettings === 'function') {
+        patchUserSettings({ theme: next });
+    }
     updateThemeToggleUI(next);
     window.dispatchEvent(new CustomEvent('sqlformys-theme-change', { detail: { theme: next } }));
 }
@@ -48,14 +52,14 @@ function updateThemeToggleUI(theme) {
 
 function initTheme() {
     const theme = document.documentElement.getAttribute('data-theme') || resolveInitialTheme();
-    applyTheme(theme);
+    applyTheme(theme, { persist: false });
 
     const btn = document.getElementById('theme-toggle');
     if (!btn) return;
 
     btn.addEventListener('click', () => {
         const current = document.documentElement.getAttribute('data-theme') || 'light';
-        applyTheme(current === 'dark' ? 'light' : 'dark');
+        applyTheme(current === 'dark' ? 'light' : 'dark', { persist: true });
     });
 }
 

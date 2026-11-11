@@ -24,6 +24,7 @@ type Config struct {
 	HtpasswdPath        string
 	AdministratorsFile    string
 	AdministratorsSeed    []string
+	UserSettingsPath      string
 
 	LogEnabled              bool
 	LogDir                  string
@@ -83,6 +84,15 @@ func Load() *Config {
 		administratorsFile = filepath.Join(filepath.Dir(htpasswdPath), "administrators")
 	}
 
+	userSettingsPath := strings.TrimSpace(os.Getenv("USER_SETTINGS_PATH"))
+	if userSettingsPath == "" {
+		if htpasswdPath != "" {
+			userSettingsPath = filepath.Join(filepath.Dir(htpasswdPath), "user-settings")
+		} else {
+			userSettingsPath = "user-settings"
+		}
+	}
+
 	logEnabled := parseBoolEnv(os.Getenv("LOG_ENABLED"), true)
 	logDir := os.Getenv("LOG_DIR")
 	if logDir == "" {
@@ -134,6 +144,7 @@ func Load() *Config {
 		HtpasswdPath:         htpasswdPath,
 		AdministratorsFile:   administratorsFile,
 		AdministratorsSeed:   administratorsSeed,
+		UserSettingsPath:     userSettingsPath,
 
 		LogEnabled:             logEnabled,
 		LogDir:                 logDir,
