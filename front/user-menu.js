@@ -93,6 +93,9 @@ function initUserMenu(identity, apiBaseUrl) {
             e.stopPropagation();
             const open = dd && dd.classList.contains('hidden');
             if (open) {
+                if (typeof closeNotificationsPanel === 'function') {
+                    closeNotificationsPanel();
+                }
                 dd.classList.remove('hidden');
                 btn.setAttribute('aria-expanded', 'true');
             } else {

@@ -14,7 +14,6 @@ const dynamicForm = document.getElementById('dynamic-form');
 const btnCancel = document.getElementById('btn-cancel');
 const btnClear = document.getElementById('btn-clear');
 const btnExecute = document.getElementById('btn-execute');
-const toastContainer = document.getElementById('toast-container');
 const searchInput = document.getElementById('search-modules');
 const clearSearchBtn = document.getElementById('clear-search');
 const toggleSidebarFoldersBtn = document.getElementById('toggle-sidebar-folders');
@@ -66,6 +65,10 @@ document.addEventListener('DOMContentLoaded', async () => {
             showToast('Autenticação', 'Não foi possível verificar a identidade de rede.', 'error');
         }
         return;
+    }
+
+    if (typeof refreshNotificationsStorage === 'function') {
+        refreshNotificationsStorage();
     }
 
     if (typeof loadUserSettings === 'function') {
@@ -410,15 +413,14 @@ async function executeQuery(payload) {
         
         // Tentar formatar a resposta se for JSON para a notificação
         let msg = result.message || 'Operação realizada com sucesso.';
-        showToast('Sucesso', msg, 'success');
+        showToast('Sucesso', msg, 'success', { context: currentQueryPath || undefined });
 
         renderQueryResult(result, duration);
 
     } catch (error) {
         console.error(error);
-        // Formatar quebras de linha reais ou literais (\n) para tag <br> do HTML
-        const formattedMsg = error.message.replace(/\\n|\n/g, '<br>');
-        showToast('Erro de Execução', formattedMsg, 'error');
+        const errMsg = error.message || 'Erro ao processar a requisição';
+        showToast('Erro de Execução', errMsg, 'error', { context: currentQueryPath || undefined });
     } finally {
         // Habilitar botão novamente
         btnExecute.disabled = false;
@@ -2758,36 +2760,6 @@ function initAppTooltips() {
             positionAppTooltip(appTooltipTrigger);
         }
     });
-}
-
-/* ==========================================================================
-   Sistema de Notificações (Toasts)
-   ========================================================================== */
-function showToast(title, message, type = 'success') {
-    const toast = document.createElement('div');
-    toast.className = `toast ${type}`;
-    
-    const icon = type === 'success' 
-        ? '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--success-color)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>'
-        : '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--error-color)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>';
-
-    toast.innerHTML = `
-        ${icon}
-        <div class="toast-content">
-            <div class="toast-title">${title}</div>
-            <div class="toast-message">${message}</div>
-        </div>
-    `;
-
-    toastContainer.appendChild(toast);
-
-    // Remover após 5 segundos
-    setTimeout(() => {
-        toast.classList.add('fade-out');
-        setTimeout(() => {
-            toast.remove();
-        }, 300); // Tempo da animação CSS
-    }, 5000);
 }
 
 /* ==========================================================================

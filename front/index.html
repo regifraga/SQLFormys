@@ -58,6 +58,23 @@
                     <button type="button" class="user-menu-item user-menu-item--logout" id="user-menu-logout" role="menuitem">Sair</button>
                 </div>
             </div>
+            <div class="notifications-wrap" id="notifications-wrap">
+                <button type="button" id="notifications-toggle" class="notifications-toggle-btn theme-toggle-btn" aria-haspopup="true" aria-expanded="false" aria-label="Notificações" title="Notificações">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
+                        <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
+                    </svg>
+                    <span id="notifications-badge" class="notifications-badge hidden" aria-hidden="true"></span>
+                </button>
+                <div id="notifications-panel" class="notifications-panel hidden" role="region" aria-label="Painel de notificações">
+                    <div class="notifications-panel-header">
+                        <h2 class="notifications-panel-title">Notificações</h2>
+                        <button type="button" id="notifications-clear-all" class="btn btn-sm btn-outline notifications-clear-btn" disabled>Limpar tudo</button>
+                    </div>
+                    <div id="notifications-empty" class="notifications-empty">Nenhuma notificação</div>
+                    <div id="notifications-list" class="notifications-list" role="list"></div>
+                </div>
+            </div>
             <button type="button" id="theme-toggle" class="theme-toggle-btn" aria-pressed="false" aria-label="Alternar tema claro e escuro">
                 <svg class="theme-icon-moon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                     <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
@@ -279,6 +296,7 @@
     <script src="auth.js"></script>
     <script src="user-settings.js"></script>
     <script src="user-menu.js"></script>
+    <script src="notifications.js"></script>
     <script src="admin-panel.js?v=form-module-edit-1"></script>
     <script src="app.js?v=form-module-edit-1"></script>
 </body>
