@@ -189,6 +189,32 @@ func (h *AdminHandler) PutSQL(w http.ResponseWriter, r *http.Request) {
 	respondWithJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
+type moduleRenameRequest struct {
+	From string `json:"from"`
+	To   string `json:"to"`
+	Kind string `json:"kind,omitempty"`
+}
+
+func (h *AdminHandler) RenameModule(w http.ResponseWriter, r *http.Request) {
+	if _, ok := h.requireAdmin(w, r); !ok {
+		return
+	}
+	var body moduleRenameRequest
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		respondWithError(w, http.StatusBadRequest, "JSON inválido")
+		return
+	}
+	if err := h.content.RenameModule(h.cfg.QueriesBasePath, body.From, body.To, body.Kind); err != nil {
+		status := http.StatusBadRequest
+		if strings.Contains(err.Error(), "destino já existe") || strings.Contains(err.Error(), "já existe um módulo") {
+			status = http.StatusConflict
+		}
+		respondWithError(w, status, err.Error())
+		return
+	}
+	respondWithJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
 type folderCreateRequest struct {
 	Path string `json:"path"`
 }

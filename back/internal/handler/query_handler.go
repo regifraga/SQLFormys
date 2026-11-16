@@ -103,8 +103,13 @@ func (h *QueryHandler) ExecuteQuery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	results, finalSQL, err := h.svc.ExecuteQuery(r.Context(), basePath, filepathParam, kind, payload, h.cfg.DBDriver, h.cfg.DBDsn)
+	stepID := strings.TrimSpace(r.URL.Query().Get("step"))
+	results, finalSQL, err := h.svc.ExecuteQuery(r.Context(), basePath, filepathParam, kind, stepID, payload, h.cfg.DBDriver, h.cfg.DBDsn)
 	if err != nil {
+		if strings.Contains(err.Error(), "step") && (strings.Contains(err.Error(), "inválido") || strings.Contains(err.Error(), "não encontrado")) {
+			respondWithError(w, http.StatusBadRequest, err.Error())
+			return
+		}
 		log.Printf("ERROR: Falha na execução da query %s | Driver: %s | Payload: %+v | Erro: %v | SQL Gerado: %s",
 			filepathParam, h.cfg.DBDriver, payload, err, finalSQL)
 		var debugQuery string

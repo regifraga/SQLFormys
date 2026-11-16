@@ -130,10 +130,11 @@ func (s *queryService) GetMetadata(basePath, queryPath, kind string) (domain.Met
 		Timeout:     parser.Timeout,
 		Fields:      fields,
 		Lookups:     lookupsMeta,
+		Wizard:      parser.WizardMetadata(),
 	}, nil
 }
 
-func (s *queryService) ExecuteQuery(ctx context.Context, basePath, queryPath, kind string, payload map[string]interface{}, defaultDriver, defaultDsn string) (domain.QueryResult, string, error) {
+func (s *queryService) ExecuteQuery(ctx context.Context, basePath, queryPath, kind, stepID string, payload map[string]interface{}, defaultDriver, defaultDsn string) (domain.QueryResult, string, error) {
 	absPath, resolvedKind, err := modulekind.ResolveModule(basePath, queryPath, kind)
 	if err != nil {
 		return domain.QueryResult{}, "", err
@@ -148,9 +149,48 @@ func (s *queryService) ExecuteQuery(ctx context.Context, basePath, queryPath, ki
 		return domain.QueryResult{}, "", fmt.Errorf("erro ao fazer parse do módulo: %w", err)
 	}
 
+	if parser.HasWizard() {
+		stepID = strings.TrimSpace(stepID)
+		if stepID == "" {
+			stepID = parser.LastStepID()
+		}
+		if _, ok := parser.StepByID(stepID); !ok {
+			return domain.QueryResult{}, "", fmt.Errorf("step %q inválido", stepID)
+		}
+	}
+
 	if resolvedKind != modulekind.KindSQL {
+		if parser.HasWizard() {
+			result, runErr := engine.RunScriptStep(ctx, absPath, resolvedKind, parser, payload, stepID)
+			if runErr != nil {
+				return result, "", runErr
+			}
+			result.ResultType = parser.ResultTypeForStep(stepID)
+			return result, "", nil
+		}
 		result, runErr := engine.RunScript(ctx, absPath, resolvedKind, parser, payload)
 		return result, "", runErr
+	}
+
+	if parser.HasWizard() {
+		stepID = strings.TrimSpace(stepID)
+		if stepID == "" {
+			stepID = parser.LastStepID()
+		}
+		finalSQL, err := engine.InjectStepValues(string(content), stepID, resolvedKind, payload, parser.Fields, parser.ResultType, defaultDriver)
+		if err != nil {
+			return domain.QueryResult{}, "", err
+		}
+		if strings.TrimSpace(finalSQL) == "" {
+			return domain.QueryResult{
+				Columns:    []string{},
+				Rows:       []map[string]interface{}{},
+				ResultType: parser.ResultTypeForStep(stepID),
+			}, "", nil
+		}
+		workParser := *parser
+		workParser.ResultType = parser.ResultTypeForStep(stepID)
+		return s.runPreparedSQL(ctx, &workParser, finalSQL, payload, defaultDriver, defaultDsn)
 	}
 
 	finalSQL := engine.InjectValues(string(content), payload, parser.Fields, defaultDriver)

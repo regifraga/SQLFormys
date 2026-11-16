@@ -5,7 +5,7 @@ Não versione o arquivo `htpasswd` aqui. O caminho **no servidor** é configurá
 
 ## Criar o primeiro usuário (no host)
 
-### Opção A — só `openssl` (sem instalar pacotes)
+### Opção A - só `openssl` (sem instalar pacotes)
 
 Formato **APR1**, aceito pelo Nginx (`auth_basic_user_file`):
 
@@ -25,7 +25,7 @@ printf 'meu.usuario:%s\n' "$(openssl passwd -apr1 "$pass")" > front/secrets/htpa
 chmod 600 front/secrets/htpasswd
 ```
 
-### Opção B — `htpasswd` (Debian/Ubuntu)
+### Opção B - `htpasswd` (Debian/Ubuntu)
 
 ```bash
 sudo apt install apache2-utils
@@ -81,12 +81,12 @@ Não é necessário `docker compose restart` só por causa de credenciais.
 
 ## Administradores e troca de senha na aplicação
 
-No **Docker Compose**, a API usa **sempre** `/app/secrets/htpasswd` (o mesmo volume do Nginx). Não defina `HTPASSWD_PATH=./htpasswd` no `.env` do Compose — isso faz a API gravar em outro arquivo dentro do container e a lista **Usuários** fica diferente do login.
+No **Docker Compose**, a API usa **sempre** `/app/secrets/htpasswd` (o mesmo volume do Nginx). Não defina `HTPASSWD_PATH=./htpasswd` no `.env` do Compose - isso faz a API gravar em outro arquivo dentro do container e a lista **Usuários** fica diferente do login.
 
 Com o volume apontando para o **mesmo arquivo** no host, a API pode alterar senhas e usuários pela interface:
 
 - `ADMINISTRATORS=usuario1,usuario2` no `.env` define os admins iniciais.
-- O arquivo `administrators` (ao lado do `htpasswd`) guarda a lista em runtime — promover/rebaixar na UI não exige reiniciar a API.
+- O arquivo `administrators` (ao lado do `htpasswd`) guarda a lista em runtime - promover/rebaixar na UI não exige reiniciar a API.
 - No Docker Compose, monte o `htpasswd` também no serviço `api` (leitura/gravação) e o arquivo `administrators` (`ADMINISTRATORS_HOST_PATH`).
 
 Usuários comuns: menu do perfil (canto superior) → **Trocar senha**.  

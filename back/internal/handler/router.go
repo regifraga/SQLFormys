@@ -36,6 +36,7 @@ func NewRouter(cfg *config.Config, acc *accounts.Service) *http.ServeMux {
 	mux.HandleFunc("PUT /api/admin/sql/{filepath...}", adminHandler.PutSQL)
 	mux.HandleFunc("POST /api/admin/folders", adminHandler.CreateFolder)
 	mux.HandleFunc("PATCH /api/admin/folders", adminHandler.RenameFolder)
+	mux.HandleFunc("PATCH /api/admin/modules", adminHandler.RenameModule)
 
 	// Rotas Dinâmicas do SQLFormys Engine (Suportando N níveis de subpastas)
 	mux.HandleFunc("GET /api/projects", queryHandler.ListProjects)

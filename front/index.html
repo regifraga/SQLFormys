@@ -163,10 +163,17 @@
                 </div>
             </div>
             
-            <nav class="sidebar-nav tree-nav" id="tree-navigation">
-                <!-- Árvore de Projetos e Módulos (Renderizado via JS) -->
-                <div class="loading-state">Carregando estrutura...</div>
-            </nav>
+            <div class="sidebar-modules" id="sidebar-modules-container">
+                <button type="button" class="modules-header sidebar-folder-toggle" id="sidebar-modules-toggle" data-sidebar-folder-id="modules" aria-expanded="false">
+                    <svg class="tree-admin-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                    <span class="modules-label">Módulos</span>
+                </button>
+                <div class="modules-panel sidebar-folder-panel" id="sidebar-modules-panel" data-sidebar-folder-id="modules">
+                    <nav class="sidebar-nav tree-nav" id="tree-navigation">
+                        <div class="loading-state">Carregando estrutura...</div>
+                    </nav>
+                </div>
+            </div>
 
             <div class="sidebar-footer">
                 <span class="version-info" id="app-version-info">SQLFormys</span>
@@ -189,14 +196,20 @@
                         <button type="button" id="form-module-edit-btn" class="tree-icon-btn form-module-edit-btn hidden" aria-label="Editar módulo" data-tooltip="Editar módulo"></button>
                     </div>
                     <div class="card-body">
+                        <div id="wizard-stepper" class="wizard-stepper hidden" aria-label="Progresso do assistente"></div>
                         <form id="dynamic-form">
                             <!-- Campos do formulário renderizados via JS -->
                         </form>
                     </div>
-                    <div class="card-footer">
-                        <button type="button" class="btn btn-secondary" id="btn-cancel">Cancelar</button>
-                        <button type="button" class="btn btn-outline" id="btn-clear">Limpar</button>
-                        <button type="button" class="btn btn-primary" id="btn-execute">Executar</button>
+                    <div class="card-footer form-card-footer">
+                        <div class="form-footer-actions">
+                            <button type="button" class="btn btn-secondary" id="btn-cancel">Cancelar</button>
+                            <button type="button" class="btn btn-outline" id="btn-clear">Limpar</button>
+                            <span class="form-footer-divider hidden" id="wizard-footer-divider" aria-hidden="true"></span>
+                            <button type="button" class="btn btn-secondary hidden" id="btn-wizard-prev">Anterior</button>
+                            <button type="button" class="btn btn-primary hidden" id="btn-wizard-next">Próximo</button>
+                            <button type="button" class="btn btn-primary" id="btn-execute">Executar</button>
+                        </div>
                     </div>
                 </div>
 

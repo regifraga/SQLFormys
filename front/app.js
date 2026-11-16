@@ -14,11 +14,17 @@ const dynamicForm = document.getElementById('dynamic-form');
 const btnCancel = document.getElementById('btn-cancel');
 const btnClear = document.getElementById('btn-clear');
 const btnExecute = document.getElementById('btn-execute');
+const btnWizardPrev = document.getElementById('btn-wizard-prev');
+const btnWizardNext = document.getElementById('btn-wizard-next');
+const wizardFooterDivider = document.getElementById('wizard-footer-divider');
+const wizardStepperEl = document.getElementById('wizard-stepper');
 const searchInput = document.getElementById('search-modules');
 const clearSearchBtn = document.getElementById('clear-search');
 const toggleSidebarFoldersBtn = document.getElementById('toggle-sidebar-folders');
 const favoritesToggleBtn = document.getElementById('sidebar-favorites-toggle');
 const favoritesPanelEl = document.getElementById('sidebar-favorites-panel');
+const modulesToggleBtn = document.getElementById('sidebar-modules-toggle');
+const modulesPanelEl = document.getElementById('sidebar-modules-panel');
 
 // Elementos da Grid
 const gridContainer = document.getElementById('grid-container');
@@ -46,6 +52,138 @@ let gridColumnTypes = {};
 let currentQueryLookups = {};
 let currentResultType = 'GRID';
 let mermaidLibInitialized = false;
+let currentWizard = null;
+let wizardStepIndex = 0;
+let wizardStepResults = {};
+let wizardStepPanes = new Map();
+let wizardResultStepLabel = '';
+let wizardNavBusy = false;
+let formExecutionCount = 0;
+let activeFormExecutionAbort = null;
+let formExecutionIdleResolvers = [];
+let formExecuteButtonLabel = '';
+
+function isFormExecutionBusy() {
+    return formExecutionCount > 0;
+}
+
+function notifyFormExecutionIdle() {
+    if (formExecutionCount > 0) return;
+    const resolvers = formExecutionIdleResolvers.splice(0);
+    resolvers.forEach((resolve) => resolve());
+}
+
+function waitForFormExecutionIdle(timeoutMs = 120000) {
+    if (!isFormExecutionBusy()) {
+        return Promise.resolve();
+    }
+    return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => {
+            const idx = formExecutionIdleResolvers.indexOf(onIdle);
+            if (idx >= 0) formExecutionIdleResolvers.splice(idx, 1);
+            reject(new Error('Tempo esgotado ao aguardar o fim da execução.'));
+        }, timeoutMs);
+        function onIdle() {
+            clearTimeout(timer);
+            resolve();
+        }
+        formExecutionIdleResolvers.push(onIdle);
+    });
+}
+
+function abortActiveFormExecution() {
+    if (activeFormExecutionAbort) {
+        activeFormExecutionAbort.abort();
+    }
+}
+
+function syncFormExecutionLockState() {
+    const busy = isFormExecutionBusy();
+    const formEl = document.getElementById('form-container');
+    if (formEl) {
+        formEl.classList.toggle('form-execution-busy', busy);
+        formEl.setAttribute('aria-busy', busy ? 'true' : 'false');
+    }
+    if (btnExecute) {
+        btnExecute.disabled = busy;
+        if (busy && !btnExecute.classList.contains('hidden')) {
+            btnExecute.innerText = 'Executando...';
+            btnExecute.setAttribute('aria-disabled', 'true');
+        } else if (!busy) {
+            btnExecute.removeAttribute('aria-disabled');
+            if (formExecuteButtonLabel) {
+                btnExecute.innerText = formExecuteButtonLabel;
+            }
+        }
+    }
+    if (btnWizardNext) {
+        btnWizardNext.disabled = busy || wizardNavBusy;
+    }
+    if (btnWizardPrev) {
+        btnWizardPrev.disabled = busy || wizardNavBusy || wizardStepIndex <= 0;
+    }
+    if (btnClear) {
+        btnClear.disabled = busy;
+    }
+    if (!busy && typeof syncWizardFooterButtons === 'function') {
+        syncWizardFooterButtons();
+    }
+}
+
+function beginFormExecution() {
+    formExecutionCount += 1;
+    if (formExecutionCount === 1) {
+        activeFormExecutionAbort = new AbortController();
+    }
+    syncFormExecutionLockState();
+}
+
+function endFormExecution() {
+    formExecutionCount = Math.max(0, formExecutionCount - 1);
+    if (formExecutionCount === 0) {
+        activeFormExecutionAbort = null;
+    }
+    syncFormExecutionLockState();
+    notifyFormExecutionIdle();
+}
+
+function confirmAbortFormExecutionAndLeave() {
+    if (!isFormExecutionBusy()) {
+        return Promise.resolve(true);
+    }
+    if (typeof openAppModal !== 'function') {
+        return Promise.resolve(false);
+    }
+    return new Promise((resolve) => {
+        let settled = false;
+        const finish = (value) => {
+            if (settled) return;
+            settled = true;
+            resolve(value);
+        };
+        openAppModal({
+            title: 'Execução em andamento',
+            body: 'Há uma execução em andamento neste módulo. Deseja cancelá-la completamente e sair?',
+            primaryLabel: 'Cancelar execução e sair',
+            secondaryLabel: 'Continuar executando',
+            onPrimary: async () => {
+                abortActiveFormExecution();
+                try {
+                    await waitForFormExecutionIdle();
+                } catch (err) {
+                    showToast('Aviso', err.message || 'Não foi possível aguardar o fim da execução.', 'warning');
+                    finish(false);
+                    return false;
+                }
+                finish(true);
+                return true;
+            },
+            onSecondary: async () => {
+                finish(false);
+            }
+        });
+    });
+}
 
 /* ==========================================================================
    Inicialização
@@ -148,6 +286,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     btnCancel.addEventListener('click', handleCancel);
     btnClear.addEventListener('click', handleClear);
     btnExecute.addEventListener('click', handleExecute);
+    if (btnWizardPrev) btnWizardPrev.addEventListener('click', handleWizardPrev);
+    if (btnWizardNext) btnWizardNext.addEventListener('click', handleWizardNext);
 
     if (btnExportCSV) {
         btnExportCSV.addEventListener('click', exportToCSV);
@@ -256,6 +396,13 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     dynamicForm.addEventListener('change', handleFormControlChange);
 
+    dynamicForm.addEventListener('input', (event) => {
+        const control = event.target;
+        if (!control || !dynamicForm.contains(control)) return;
+        if (!control.classList.contains('form-control')) return;
+        refreshInterpolatedTexts();
+    });
+
     dynamicForm.addEventListener('keydown', (e) => {
         if (e.key === 'Escape') {
             e.preventDefault();
@@ -298,7 +445,7 @@ async function loadProjects() {
             await fetchAdminUsers(API_BASE_URL);
         }
         const response = await apiFetch(`${API_BASE_URL}/projects`);
-        if (!response.ok) throw new Error('Falha ao carregar estrutura de projetos');
+        if (!response.ok) throw new Error('Falha ao carregar estrutura de módulos');
         
         const data = await response.json();
         const projects = Array.isArray(data) ? data : (data.projects || []);
@@ -309,6 +456,7 @@ async function loadProjects() {
             renderAdminUsersPanel(API_BASE_URL);
         }
         renderTree(projects, treeNavigation);
+        syncModulesAccordion();
         renderFavorites();
 
         if (productName) {
@@ -321,7 +469,7 @@ async function loadProjects() {
     } catch (error) {
         console.error(error);
         treeNavigation.innerHTML = '<div class="loading-state" style="color: var(--error-color);">Erro ao carregar menu.</div>';
-        showToast('Erro de Conexão', 'Não foi possível carregar a estrutura de projetos.', 'error');
+        showToast('Erro de Conexão', 'Não foi possível carregar a estrutura de módulos.', 'error');
     }
 }
 
@@ -339,7 +487,273 @@ function queriesApiUrl(queryPath, kind) {
     return `${API_BASE_URL}/queries/${queryPath}${moduleKindQueryParam(kind)}`;
 }
 
+function queriesExecuteUrl(queryPath, kind, stepId) {
+    let url = queriesApiUrl(queryPath, kind);
+    if (stepId) {
+        url += `&step=${encodeURIComponent(stepId)}`;
+    }
+    return url;
+}
+
+function isWizardModule() {
+    return Boolean(currentWizard && Array.isArray(currentWizard.steps) && currentWizard.steps.length > 0);
+}
+
+function getWizardStepMeta(index) {
+    if (!isWizardModule()) return null;
+    return currentWizard.steps[index] || null;
+}
+
+function getCurrentWizardStepMeta() {
+    return getWizardStepMeta(wizardStepIndex);
+}
+
+function resetWizardState() {
+    currentWizard = null;
+    wizardStepIndex = 0;
+    wizardStepResults = {};
+    wizardStepPanes = new Map();
+    wizardResultStepLabel = '';
+    if (wizardStepperEl) {
+        wizardStepperEl.innerHTML = '';
+        wizardStepperEl.classList.add('hidden');
+    }
+    syncWizardFooterButtons();
+}
+
+function syncWizardFooterButtons() {
+    if (!btnWizardPrev || !btnWizardNext || !btnExecute) return;
+    if (!isWizardModule()) {
+        btnWizardPrev.classList.add('hidden');
+        btnWizardNext.classList.add('hidden');
+        btnExecute.classList.remove('hidden');
+        return;
+    }
+    const last = wizardStepIndex >= currentWizard.steps.length - 1;
+    btnWizardPrev.classList.toggle('hidden', wizardStepIndex <= 0);
+    btnWizardNext.classList.toggle('hidden', last);
+    btnExecute.classList.toggle('hidden', !last);
+    if (wizardFooterDivider) {
+        wizardFooterDivider.classList.toggle('hidden', !isWizardModule());
+    }
+}
+
+function renderWizardStepper() {
+    if (!wizardStepperEl || !isWizardModule()) return;
+    const steps = currentWizard.steps;
+    const current = getCurrentWizardStepMeta();
+    wizardStepperEl.innerHTML = '';
+    wizardStepperEl.classList.remove('hidden');
+
+    const summary = document.createElement('p');
+    summary.className = 'wizard-stepper-summary';
+    const currentLabel = current ? wizardStepDisplayLabel(current) : '';
+    summary.innerHTML = `Etapa <strong>${wizardStepIndex + 1}</strong> de <strong>${steps.length}</strong>${currentLabel ? ` - <strong>${escapeHtml(currentLabel)}</strong>` : ''}`;
+    wizardStepperEl.appendChild(summary);
+
+    const track = document.createElement('div');
+    track.className = 'wizard-stepper-track';
+    track.setAttribute('role', 'list');
+
+    steps.forEach((step, idx) => {
+        const isComplete = idx < wizardStepIndex;
+        const isCurrent = idx === wizardStepIndex;
+        const labelText = wizardStepDisplayLabel(step);
+
+        const item = document.createElement(isComplete ? 'button' : 'div');
+        item.className = 'wizard-stepper-item';
+        if (isComplete) {
+            item.type = 'button';
+            item.classList.add('is-complete', 'is-clickable');
+            item.setAttribute('aria-label', `Voltar para etapa ${idx + 1}: ${labelText}`);
+            item.title = `Voltar para: ${labelText}`;
+            item.addEventListener('click', () => goToWizardStep(idx));
+        } else {
+            item.setAttribute('role', 'listitem');
+        }
+        if (isCurrent) item.classList.add('is-current');
+
+        const circle = document.createElement('div');
+        circle.className = 'wizard-step-circle';
+        if (isComplete) {
+            circle.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"></polyline></svg>';
+        } else {
+            circle.textContent = String(idx + 1);
+        }
+        if (isCurrent) {
+            circle.setAttribute('aria-current', 'step');
+        }
+
+        const label = document.createElement('span');
+        label.className = 'wizard-step-label';
+        label.textContent = labelText;
+        if (isComplete) {
+            label.setAttribute('aria-hidden', 'true');
+        }
+
+        item.appendChild(circle);
+        item.appendChild(label);
+        track.appendChild(item);
+    });
+
+    wizardStepperEl.appendChild(track);
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+function updateWizardStepVisibility() {
+    if (!isWizardModule()) return;
+    wizardStepPanes.forEach((pane, stepId) => {
+        const step = getCurrentWizardStepMeta();
+        const show = step && step.id === stepId;
+        pane.classList.toggle('hidden', !show);
+    });
+    refreshInterpolatedTexts();
+    syncWizardFooterButtons();
+}
+
+function setupWizardPanes() {
+    wizardStepPanes = new Map();
+    if (!isWizardModule()) {
+        if (wizardStepperEl) {
+            wizardStepperEl.classList.add('hidden');
+            wizardStepperEl.innerHTML = '';
+        }
+        return;
+    }
+    currentWizard.steps.forEach((step) => {
+        const pane = document.createElement('div');
+        pane.className = 'wizard-step-pane hidden';
+        pane.id = `wizard-pane-${step.id}`;
+        pane.dataset.stepId = step.id;
+        dynamicForm.appendChild(pane);
+        wizardStepPanes.set(step.id, pane);
+    });
+    wizardStepIndex = 0;
+    wizardStepResults = {};
+}
+
+function wizardFieldMount(field) {
+    if (!isWizardModule()) return dynamicForm;
+    const stepId = field.stepId || field.step_id;
+    if (stepId && wizardStepPanes.has(stepId)) {
+        return wizardStepPanes.get(stepId);
+    }
+    const names = getCurrentWizardStepMeta()?.fieldNames;
+    if (names && names.includes(field.field)) {
+        const step = currentWizard.steps.find(s => (s.fieldNames || []).includes(field.field));
+        if (step && wizardStepPanes.has(step.id)) {
+            return wizardStepPanes.get(step.id);
+        }
+    }
+    return dynamicForm;
+}
+
+function getWizardPaneForStep(stepId) {
+    return wizardStepPanes.get(stepId) || null;
+}
+
+function validateWizardStepAt(index) {
+    const step = getWizardStepMeta(index);
+    if (!step) return true;
+    const pane = getWizardPaneForStep(step.id);
+    if (!pane) return true;
+    const controls = pane.querySelectorAll('input, select, textarea');
+    for (const control of controls) {
+        if (!control.checkValidity()) {
+            control.reportValidity();
+            return false;
+        }
+    }
+    return true;
+}
+
+function setWizardResultTitle(label) {
+    wizardResultStepLabel = label || '';
+    const gridTitle = document.getElementById('grid-title');
+    if (gridTitle && wizardResultStepLabel) {
+        gridTitle.innerText = `Resultados - ${wizardResultStepLabel}`;
+    }
+}
+
+function restoreWizardStepResult(stepId) {
+    const cached = wizardStepResults[stepId];
+    if (!cached) {
+        gridContainer.classList.add('hidden');
+        currentQueryResult = null;
+        return;
+    }
+    const step = currentWizard.steps.find(s => s.id === stepId);
+    setWizardResultTitle(step ? wizardStepDisplayLabel(step) : '');
+    renderQueryResult(cached.data, cached.duration);
+}
+
+async function runWizardStepQuery(stepMeta) {
+    const payload = collectFormValues(false);
+    await executeQuery(payload, {
+        stepId: stepMeta.id,
+        stepLabel: wizardStepDisplayLabel(stepMeta),
+        skipButtonLock: true
+    });
+    if (currentQueryResult) {
+        wizardStepResults[stepMeta.id] = {
+            data: currentQueryResult,
+            duration: null
+        };
+    }
+}
+
+async function handleWizardNext() {
+    if (!isWizardModule() || wizardNavBusy || isFormExecutionBusy()) return;
+    if (!validateWizardStepAt(wizardStepIndex)) return;
+
+    const step = getCurrentWizardStepMeta();
+    if (!step) return;
+
+    wizardNavBusy = true;
+    if (btnWizardNext) btnWizardNext.disabled = true;
+
+    try {
+        if (step.hasQuery) {
+            await runWizardStepQuery(step);
+        }
+        if (wizardStepIndex < currentWizard.steps.length - 1) {
+            wizardStepIndex += 1;
+            updateWizardStepVisibility();
+        }
+    } finally {
+        wizardNavBusy = false;
+        if (btnWizardNext) btnWizardNext.disabled = false;
+    }
+}
+
+function handleWizardPrev() {
+    if (!isWizardModule() || wizardStepIndex <= 0) return;
+    goToWizardStep(wizardStepIndex - 1);
+}
+
+function goToWizardStep(targetIndex) {
+    if (!isWizardModule() || wizardNavBusy) return;
+    if (targetIndex < 0 || targetIndex >= currentWizard.steps.length) return;
+    if (targetIndex >= wizardStepIndex) return;
+
+    wizardStepIndex = targetIndex;
+    updateWizardStepVisibility();
+    const step = getCurrentWizardStepMeta();
+    if (step) {
+        restoreWizardStepResult(step.id);
+    }
+}
+
 async function loadFormFields(queryPath, moduleTitle, moduleKind = 'sql') {
+    if (isFormExecutionBusy()) {
+        const canLeave = await confirmAbortFormExecutionAndLeave();
+        if (!canLeave) return;
+    }
     if (typeof confirmCloseSqlEditorIfNeeded === 'function') {
         const canProceed = await confirmCloseSqlEditorIfNeeded();
         if (!canProceed) return;
@@ -368,6 +782,10 @@ async function loadFormFields(queryPath, moduleTitle, moduleKind = 'sql') {
         window.sqlformysActiveQueryKind = resolvedKind;
         currentFields = fields;
         currentQueryLookups = data.lookups || {};
+        currentWizard = data.wizard || null;
+        wizardStepIndex = 0;
+        wizardStepResults = {};
+        wizardResultStepLabel = '';
 
         resetResultDocumentView();
         renderForm(queryPath, moduleTitle, fields, description, executeMode, server, timeout, currentResultType);
@@ -377,7 +795,7 @@ async function loadFormFields(queryPath, moduleTitle, moduleKind = 'sql') {
         gridContainer.classList.add('hidden');
         formContainer.classList.remove('hidden');
 
-        if (executeMode.toUpperCase() === 'AUTO') {
+        if (executeMode.toUpperCase() === 'AUTO' && !isWizardModule()) {
             handleExecute();
         }
 
@@ -387,11 +805,20 @@ async function loadFormFields(queryPath, moduleTitle, moduleKind = 'sql') {
     }
 }
 
-async function executeQuery(payload) {
-    // Desabilitar botão
-    btnExecute.disabled = true;
-    const originalText = btnExecute.innerText;
-    btnExecute.innerText = 'Executando...';
+async function executeQuery(payload, options = {}) {
+    if (isFormExecutionBusy()) {
+        return;
+    }
+    const skipExecuteLabel = options.skipButtonLock === true;
+    const stepId = options.stepId || '';
+    const stepLabel = options.stepLabel || '';
+
+    if (!skipExecuteLabel && btnExecute) {
+        formExecuteButtonLabel = btnExecute.innerText || 'Executar';
+    }
+
+    beginFormExecution();
+    const requestSignal = activeFormExecutionAbort ? activeFormExecutionAbort.signal : undefined;
 
     currentQueryResult = null;
 
@@ -405,12 +832,13 @@ async function executeQuery(payload) {
     const startTime = performance.now();
 
     try {
-        const response = await apiFetch(queriesApiUrl(currentQueryPath, currentQueryKind), {
+        const response = await apiFetch(queriesExecuteUrl(currentQueryPath, currentQueryKind, stepId), {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify(payload)
+            body: JSON.stringify(payload),
+            signal: requestSignal
         });
 
         if (!response.ok) {
@@ -435,16 +863,22 @@ async function executeQuery(payload) {
         let msg = result.message || 'Operação realizada com sucesso.';
         showToast('Sucesso', msg, 'success', { context: currentQueryPath || undefined });
 
+        if (stepLabel) {
+            setWizardResultTitle(stepLabel);
+        }
         renderQueryResult(result, duration);
 
     } catch (error) {
+        if (error && error.name === 'AbortError') {
+            showToast('Execução cancelada', 'A execução foi interrompida.', 'info', { context: currentQueryPath || undefined });
+            throw error;
+        }
         console.error(error);
         const errMsg = error.message || 'Erro ao processar a requisição';
         showToast('Erro de Execução', errMsg, 'error', { context: currentQueryPath || undefined });
+        throw error;
     } finally {
-        // Habilitar botão novamente
-        btnExecute.disabled = false;
-        btnExecute.innerText = originalText;
+        endFormExecution();
     }
 }
 
@@ -507,10 +941,6 @@ function renderTree(nodes, container, isSearching = false) {
     container.innerHTML = ''; // Limpar loading state
 
     if (typeof isAdminUser === 'function' && isAdminUser()) {
-        const projectsHead = document.createElement('div');
-        projectsHead.className = 'tree-projects-section';
-        projectsHead.innerHTML = '<span class="tree-projects-section-title">Projetos</span>';
-        container.appendChild(projectsHead);
         if (typeof appendTreeAdminRootBar === 'function') {
             appendTreeAdminRootBar(container, API_BASE_URL);
         }
@@ -518,7 +948,7 @@ function renderTree(nodes, container, isSearching = false) {
 
     if (!nodes || nodes.length === 0) {
         if (container.children.length === 0) {
-            container.innerHTML = '<div class="loading-state">Nenhum projeto encontrado.</div>';
+            container.innerHTML = '<div class="loading-state">Nenhum módulo encontrado.</div>';
         }
         return;
     }
@@ -777,6 +1207,51 @@ function formatDateFieldValue(field, value) {
         return `${isoMatch[1]}${isoMatch[2]}${isoMatch[3]}`;
     }
     return value;
+}
+
+const INTERPOLATE_TOKEN_RE = /\{\{\s*([A-Za-z][A-Za-z0-9_]*)\s*\}\}/g;
+
+function getKnownFormFieldNames() {
+    return (currentFields || []).map(field => field.field);
+}
+
+function interpolateTemplate(text, values, knownFields) {
+    const template = text == null ? '' : String(text);
+    if (!template.includes('{{')) {
+        return template;
+    }
+    const known = new Set(knownFields || getKnownFormFieldNames());
+    return template.replace(INTERPOLATE_TOKEN_RE, (match, name) => {
+        if (!known.has(name)) {
+            return match;
+        }
+        if (!values || values[name] === undefined || values[name] === null) {
+            return '';
+        }
+        return String(values[name]);
+    });
+}
+
+function wizardStepDisplayLabel(step) {
+    if (!step) return '';
+    const raw = step.label || step.id || '';
+    return interpolateTemplate(raw, collectFormValues(true), getKnownFormFieldNames());
+}
+
+function refreshInterpolatedTexts() {
+    const values = collectFormValues(true);
+    const known = getKnownFormFieldNames();
+    dynamicForm.querySelectorAll('[data-label-template]').forEach(el => {
+        el.textContent = interpolateTemplate(el.dataset.labelTemplate, values, known);
+    });
+    dynamicForm.querySelectorAll('[data-tooltip-template]').forEach(el => {
+        const resolved = interpolateTemplate(el.dataset.tooltipTemplate, values, known);
+        el.setAttribute('data-tooltip', resolved);
+        el.setAttribute('aria-label', resolved ? `Informações: ${resolved}` : 'Informações do campo');
+    });
+    if (isWizardModule()) {
+        renderWizardStepper();
+    }
 }
 
 function collectFormValues(includeEmpty = false) {
@@ -1105,6 +1580,8 @@ function handleFormControlChange(event) {
     const control = event.target;
     if (!control || !dynamicForm.contains(control)) return;
     if (!control.classList.contains('form-control') && !control.classList.contains('form-radio')) return;
+
+    refreshInterpolatedTexts();
 
     const name = control.name;
     if (!name) return;
@@ -1754,16 +2231,23 @@ function renderForm(queryPath, moduleTitle, fields, description = '', executeMod
 
     // Limpar form
     dynamicForm.innerHTML = '';
+    setupWizardPanes();
 
-    btnExecute.disabled = false;
+    formExecuteButtonLabel = 'Executar';
+    if (!isFormExecutionBusy()) {
+        btnExecute.disabled = false;
+        btnExecute.innerText = 'Executar';
+    }
 
     const visibleFields = (fields || []).filter(field => !isContextField(field));
     if (!fields || fields.length === 0) {
         dynamicForm.innerHTML = '<p class="form-text">Nenhum campo retornado pela API para este módulo.</p>';
+        syncWizardFooterButtons();
         return;
     }
     if (visibleFields.length === 0) {
         dynamicForm.innerHTML = '<p class="form-text">Este módulo não possui campos editáveis.</p>';
+        syncWizardFooterButtons();
         return;
     }
 
@@ -1778,7 +2262,9 @@ function renderForm(queryPath, moduleTitle, fields, description = '', executeMod
         label.className = 'form-label';
         
         const labelText = document.createElement('span');
-        labelText.innerText = field.label;
+        labelText.className = 'field-label-text';
+        labelText.dataset.labelTemplate = field.label || '';
+        labelText.textContent = field.label || '';
         label.appendChild(labelText);
         
         if (field.required) {
@@ -1791,6 +2277,7 @@ function renderForm(queryPath, moduleTitle, fields, description = '', executeMod
         if (field.information) {
             const infoSpan = document.createElement('span');
             infoSpan.className = 'field-info-icon';
+            infoSpan.dataset.tooltipTemplate = field.information;
             infoSpan.setAttribute('data-tooltip', field.information);
             infoSpan.setAttribute('tabindex', '0');
             infoSpan.setAttribute('role', 'img');
@@ -1893,7 +2380,7 @@ function renderForm(queryPath, moduleTitle, fields, description = '', executeMod
 
             group.appendChild(label);
             group.appendChild(select);
-            dynamicForm.appendChild(group);
+            wizardFieldMount(field).appendChild(group);
             enhanceCustomSelect(select);
             return;
         }
@@ -1943,7 +2430,7 @@ function renderForm(queryPath, moduleTitle, fields, description = '', executeMod
             
             group.appendChild(label);
             group.appendChild(radioGroup);
-            dynamicForm.appendChild(group);
+            wizardFieldMount(field).appendChild(group);
             return;
         }
 
@@ -1986,17 +2473,31 @@ function renderForm(queryPath, moduleTitle, fields, description = '', executeMod
 
         group.appendChild(label);
         group.appendChild(input);
-        dynamicForm.appendChild(group);
+        wizardFieldMount(field).appendChild(group);
     });
 
     snapshotFormControlValues();
     void preloadLookupSelectLabels();
+    if (isWizardModule()) {
+        updateWizardStepVisibility();
+    } else {
+        refreshInterpolatedTexts();
+        if (wizardStepperEl) {
+            wizardStepperEl.classList.add('hidden');
+            wizardStepperEl.innerHTML = '';
+        }
+        syncWizardFooterButtons();
+    }
 }
 
 /* ==========================================================================
    Ações dos Botões do Formulário
    ========================================================================== */
-function handleCancel() {
+async function handleCancel() {
+    if (isFormExecutionBusy()) {
+        const canLeave = await confirmAbortFormExecutionAndLeave();
+        if (!canLeave) return;
+    }
     syncFormModuleEditButton(null);
     formContainer.classList.add('hidden');
     gridContainer.classList.add('hidden');
@@ -2014,6 +2515,7 @@ function handleCancel() {
     currentQueryLookups = {};
     currentQueryResult = null;
     currentResultType = 'GRID';
+    resetWizardState();
     resetResultDocumentView();
     if (gridActions) {
         gridActions.classList.add('hidden');
@@ -2028,8 +2530,14 @@ function handleCancel() {
 
 function handleClear() {
     if (!currentFields || currentFields.length === 0) return;
+
+    const stepMeta = isWizardModule() ? getCurrentWizardStepMeta() : null;
+    const fieldFilter = stepMeta
+        ? (field) => !isContextField(field) && ((field.stepId || field.step_id) === stepMeta.id || (stepMeta.fieldNames || []).includes(field.field))
+        : (field) => true;
     
     currentFields.forEach(field => {
+        if (!fieldFilter(field)) return;
         if (field.type.toUpperCase() === 'CHAR' && field.size === 1) {
             const radioSim = document.getElementById(`field_${field.field}_S`);
             const radioNao = document.getElementById(`field_${field.field}_N`);
@@ -2055,9 +2563,20 @@ function handleClear() {
     });
 
     snapshotFormControlValues();
+    refreshInterpolatedTexts();
 }
 
 function handleExecute() {
+    if (isFormExecutionBusy()) return;
+    if (isWizardModule()) {
+        if (!validateWizardStepAt(wizardStepIndex)) return;
+        const step = getCurrentWizardStepMeta();
+        if (!step) return;
+        executeQuery(collectFormValues(false), { stepId: step.id, stepLabel: wizardStepDisplayLabel(step) }).then(() => {
+            wizardStepResults[step.id] = { data: currentQueryResult, duration: null };
+        }).catch(() => {});
+        return;
+    }
     if (!dynamicForm.checkValidity()) {
         dynamicForm.reportValidity();
         return;
@@ -2248,10 +2767,11 @@ function updateGridTitle() {
     const visibleCount = getDisplayedGridRows().length;
     const term = getGridSearchTerm();
 
+    const titleBase = wizardResultStepLabel ? `Resultados - ${wizardResultStepLabel}` : 'Resultados';
     if (term === '') {
-        gridTitle.innerText = `Resultados (${totalCount.toLocaleString('pt-BR')})`;
+        gridTitle.innerText = `${titleBase} (${totalCount.toLocaleString('pt-BR')})`;
     } else {
-        gridTitle.innerText = `Resultados (${visibleCount.toLocaleString('pt-BR')} de ${totalCount.toLocaleString('pt-BR')})`;
+        gridTitle.innerText = `${titleBase} (${visibleCount.toLocaleString('pt-BR')} de ${totalCount.toLocaleString('pt-BR')})`;
     }
 }
 
@@ -2397,10 +2917,11 @@ function setExecutionTimeBadge(duration, rowCount) {
     const executionTimeEl = document.getElementById('execution-time');
 
     if (gridTitle) {
+        const titleBase = wizardResultStepLabel ? `Resultados - ${wizardResultStepLabel}` : 'Resultados';
         if (rowCount != null && rowCount > 0) {
-            gridTitle.innerText = `Resultados (${rowCount.toLocaleString('pt-BR')})`;
+            gridTitle.innerText = `${titleBase} (${rowCount.toLocaleString('pt-BR')})`;
         } else {
-            gridTitle.innerText = 'Resultados';
+            gridTitle.innerText = titleBase;
         }
     }
 
@@ -3002,13 +3523,19 @@ function collectTreeFolderIds(nodes, parentRel = '') {
 }
 
 function collectAllSidebarFolderIds() {
-    const ids = ['users', 'users:padrao', 'users:administradores'];
+    const ids = ['users', 'users:padrao', 'users:administradores', 'modules'];
     const favContainer = document.getElementById('sidebar-favorites-container');
     if (favContainer && !favContainer.classList.contains('hidden')) {
         ids.push('favorites');
     }
     ids.push(...collectTreeFolderIds(allProjects));
     return ids;
+}
+
+function syncModulesAccordion() {
+    if (modulesPanelEl && modulesToggleBtn && typeof syncSidebarFolderPanel === 'function') {
+        syncSidebarFolderPanel(modulesPanelEl, modulesToggleBtn, 'modules');
+    }
 }
 
 function setAllSidebarFoldersExpanded(expand) {
@@ -3051,6 +3578,8 @@ function updateExpandCollapseAllButton() {
 
 window.updateExpandCollapseAllButton = updateExpandCollapseAllButton;
 window.setAllSidebarFoldersExpanded = setAllSidebarFoldersExpanded;
+window.isFormExecutionBusy = isFormExecutionBusy;
+window.confirmAbortFormExecutionAndLeave = confirmAbortFormExecutionAndLeave;
 
 function initSidebarFolderControls() {
     if (favoritesToggleBtn && favoritesPanelEl) {
@@ -3063,6 +3592,16 @@ function initSidebarFolderControls() {
         if (typeof syncSidebarFolderPanel === 'function') {
             syncSidebarFolderPanel(favoritesPanelEl, favoritesToggleBtn, 'favorites');
         }
+    }
+
+    if (modulesToggleBtn && modulesPanelEl) {
+        modulesToggleBtn.addEventListener('click', () => {
+            const open = !modulesPanelEl.classList.contains('open');
+            if (typeof setSidebarFolderExpanded === 'function') {
+                setSidebarFolderExpanded('modules', open);
+            }
+        });
+        syncModulesAccordion();
     }
 
     if (toggleSidebarFoldersBtn) {

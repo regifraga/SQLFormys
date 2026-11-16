@@ -108,3 +108,40 @@ func (c *ContentAdmin) RenameFolder(basePath, fromRel, toRel string) error {
 	}
 	return os.Rename(from, to)
 }
+
+func (c *ContentAdmin) RenameModule(basePath, fromRel, toRel, kind string) error {
+	fromRel = strings.Trim(strings.TrimSpace(fromRel), "/\\")
+	toRel = strings.Trim(strings.TrimSpace(toRel), "/\\")
+	if fromRel == "" || toRel == "" {
+		return fmt.Errorf("caminhos inválidos")
+	}
+	if strings.Contains(toRel, "..") {
+		return fmt.Errorf("nome de módulo inválido")
+	}
+	absFrom, resolvedKind, err := modulekind.ResolveModule(basePath, fromRel, kind)
+	if err != nil {
+		return err
+	}
+	kind = modulekind.NormalizeKind(kind)
+	if kind == "" {
+		kind = resolvedKind
+	}
+	ext, err := modulekind.ExtForKind(kind)
+	if err != nil {
+		return err
+	}
+	absTo, err := filesafe.ResolveUnderBase(basePath, toRel+ext)
+	if err != nil {
+		return err
+	}
+	if _, err := os.Stat(absTo); err == nil {
+		return fmt.Errorf("destino já existe")
+	}
+	if modulekind.BasenameConflict(basePath, toRel) {
+		return fmt.Errorf("já existe um módulo com este nome nesta pasta")
+	}
+	if err := os.MkdirAll(filepath.Dir(absTo), 0o755); err != nil {
+		return err
+	}
+	return os.Rename(absFrom, absTo)
+}

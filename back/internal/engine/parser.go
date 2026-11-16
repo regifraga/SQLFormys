@@ -20,7 +20,9 @@ type SQLParser struct {
 	ResultType  string
 	Timeout     int
 	Fields      []domain.Field
-	Lookups     map[string]string
+	Lookups       map[string]string
+	Steps         []StepDefinition
+	WizardEnabled bool // true only when --<WIZARD> ... --</WIZARD> is present
 }
 
 var (
@@ -143,6 +145,28 @@ func extractSqlServerDeclareBlock(fileContent string) string {
 	return block
 }
 
+// stripSqlServerDeclareBlock removes the DECLARE preamble so it is not duplicated when
+// the engine prepends extractSqlServerDeclareBlock separately (e.g. wizard residual SQL).
+func stripSqlServerDeclareBlock(content string) string {
+	content = StripLookupBlocks(content)
+	loc := declareStartRegex.FindStringIndex(content)
+	if loc == nil {
+		return content
+	}
+	rest := content[loc[0]:]
+	end := len(rest)
+	if propLoc := propertiesStartRegex.FindStringIndex(rest); propLoc != nil {
+		end = propLoc[0]
+	} else if sqlLoc := mainSQLStartRegex.FindStringIndex(rest); sqlLoc != nil && sqlLoc[0] > 0 {
+		end = sqlLoc[0]
+	}
+	if end == 0 || end >= len(rest) {
+		return content
+	}
+	blockEnd := loc[0] + end
+	return strings.TrimSpace(content[:loc[0]] + content[blockEnd:])
+}
+
 // LookupSQL returns the inner SQL of a named lookup block (case-insensitive).
 func (p *SQLParser) LookupSQL(name string) (string, bool) {
 	if p == nil || p.Lookups == nil {
@@ -250,6 +274,19 @@ func ParseMetadataForKind(content, kind string) (*SQLParser, error) {
 
 	if resultTypeMatch := d.resultTypeRegex.FindStringSubmatch(content); len(resultTypeMatch) > 1 {
 		parser.ResultType = NormalizeResultType(resultTypeMatch[1])
+	}
+
+	steps, err := parseStepBlocks(content, d, parser.ResultType)
+	if err != nil {
+		return nil, err
+	}
+	if len(steps) > 0 {
+		parser.Steps = steps
+		parser.WizardEnabled = hasWizardBlock(content, d.linePrefix)
+		for _, st := range steps {
+			parser.Fields = append(parser.Fields, st.Fields...)
+		}
+		return parser, nil
 	}
 
 	propMatch := d.propertiesRegex.FindStringSubmatch(content)

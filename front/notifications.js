@@ -205,7 +205,7 @@ function plainMessageFromNotification(message) {
 
 function formatNotificationForCopy(item) {
     const lines = [
-        'SQLFormys — Notificação',
+        'SQLFormys - Notificação',
         `Título: ${item.title}`,
         `Tipo: ${notificationTypeLabel(item.type)}`,
         `Data: ${formatAbsoluteDateTime(item.createdAt)} (${new Date(item.createdAt).toISOString()})`,

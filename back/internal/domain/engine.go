@@ -11,11 +11,26 @@ type Field struct {
 	Required     bool   `json:"required"`
 	DefaultValue string `json:"defaultValue"`
 	Information  string `json:"information"`
+	StepID       string `json:"stepId,omitempty"`
 	DependsOn    []string `json:"dependsOn,omitempty"`
 	ContextKey   string   `json:"contextKey,omitempty"`
 	Hidden       bool     `json:"hidden,omitempty"`
 	Operator     string   `json:"-"` // Internal use for building query, typically '='
 	DbType       string   `json:"-"` // Internal use for database type (e.g. for SINGLE)
+}
+
+// WizardStepMeta describes one step in a guided wizard module.
+type WizardStepMeta struct {
+	ID         string   `json:"id"`
+	Label      string   `json:"label"`
+	HasQuery   bool     `json:"hasQuery"`
+	ResultType string   `json:"resultType,omitempty"`
+	FieldNames []string `json:"fieldNames"`
+}
+
+// WizardMetadata is returned when a module defines STEP/WIZARD blocks.
+type WizardMetadata struct {
+	Steps []WizardStepMeta `json:"steps"`
 }
 
 // TreeNode represents a hierarchical node (folder or module) in the queries directory tree
@@ -37,6 +52,7 @@ type MetadataResponse struct {
 	Timeout     int                       `json:"timeout"`
 	Fields      []Field                   `json:"fields"`
 	Lookups     map[string]LookupMetadata `json:"lookups,omitempty"`
+	Wizard      *WizardMetadata           `json:"wizard,omitempty"`
 }
 
 // LookupMetadata describes a named lookup block declared in the SQL module.
@@ -66,6 +82,6 @@ type LookupResult struct {
 type DynamicQueryService interface {
 	ListProjects(basePath string) ([]TreeNode, error)
 	GetMetadata(basePath, queryPath, kind string) (MetadataResponse, error)
-	ExecuteQuery(ctx context.Context, basePath, queryPath, kind string, payload map[string]interface{}, defaultDriver, defaultDsn string) (QueryResult, string, error)
+	ExecuteQuery(ctx context.Context, basePath, queryPath, kind, stepID string, payload map[string]interface{}, defaultDriver, defaultDsn string) (QueryResult, string, error)
 	ExecuteLookup(ctx context.Context, basePath, queryPath, kind, lookupName, lookupField string, payload map[string]interface{}, defaultDriver, defaultDsn string) (LookupResult, string, error)
 }

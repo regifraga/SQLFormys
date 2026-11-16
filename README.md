@@ -159,7 +159,7 @@ NGINX_BASIC_AUTH_REALM=SQLFormys
 
 **3. Start with Docker Compose.** The `front` service bind-mounts the host `htpasswd` file read-only; the `api` service mounts the **same** file read/write for in-app password changes and administrator user management. Create an empty administrators file on the host if needed, e.g. `touch ./administrators && chmod 600 ./administrators`, and set `ADMINISTRATORS_HOST_PATH` in `.env` when using a custom path.
 
-**Add users later:** administrators can use **Usuários** in the sidebar UI, or run `htpasswd -b <host-path> newuser` on the server. Nginx re-reads the file per request — no container restart required.
+**Add users later:** administrators can use **Usuários** in the sidebar UI, or run `htpasswd -b <host-path> newuser` on the server. Nginx re-reads the file per request - no container restart required.
 
 **In the UI:** logged-in users see a profile badge beside the theme toggle (user icon vs shield for administrators). Everyone with Basic Auth configured can **Trocar senha** from that menu (current password required; strong password rules enforced). Administrators additionally manage users, edit `.sql` modules (CodeMirror), and create or rename folders under `back/queries`.
 
@@ -254,12 +254,83 @@ Basic shape:
 | `default` | Optional default value. |
 | `help` | Optional tooltip (info icon). |
 
+### Variable interpolation in UI text
+
+In **labels**, **help** (tooltip), and **wizard step titles** (`STEP id: text` inside `--<WIZARD>`), you can reference other form fields with `{{FIELD_NAME}}`. Spaces inside the braces are allowed (`{{ NM_ARQUIVO }}`).
+
+| Token | Meaning |
+|---|---|
+| `{{FIELD_NAME}}` | Replaced in the UI with the current value of that field (from any wizard step already on the form). |
+| Unknown name | Left unchanged (`{{UNKNOWN}}` stays as-is). |
+| Known field, empty value | Replaced with an empty string. |
+
+Use `{{…}}` instead of `@(…)`, `$(…)`, or `$VAR` so the text stays valid in SQL, Bash, and PowerShell. Interpolation applies **only to what the browser shows**; the executed SQL or script is not modified (values still go through normal injection / environment variables).
+
+```sql
+--<STEP ListarValores>
+--<PROPERTIES>
+-- SELECT @?#NM_ARQUIVO:VARCHAR:100:=:File name
+--</PROPERTIES>
+--</STEP>
+
+--<STEP ValidarLista>
+--<PROPERTIES>
+-- SELECT @?#IC_TAMANHO2:CHAR:1:=:Show size column?:S:Include file size for {{NM_ARQUIVO}}
+--</PROPERTIES>--</STEP>
+
+--<WIZARD>
+-- STEP ListarValores: Choose file
+-- STEP ValidarLista: Validate {{NM_ARQUIVO}}
+--</WIZARD>
+```
+
+After the user fills `NM_ARQUIVO` on step 1, the step 2 tooltip and stepper label show that value.
+
 ```sql
 --<PROPERTIES>
 -- SELECT @?NM_ARQUIVO:VARCHAR:100:=:File name
 -- SELECT @?#IC_TAMANHO:CHAR:1:=:Show size column?:S:Include the size column in the result
 --</PROPERTIES>
 ```
+
+### Guided wizard (`STEP` / `WIZARD`)
+
+Use multiple **steps** when a module should collect parameters in stages and optionally run SQL between steps. The UI shows a stepper with **Anterior**, **Próximo**, and **Executar** (on the last step only).
+
+Wrap each step in `--<STEP StepId>` … `--</STEP>`. Each step contains its own `--<PROPERTIES>` block (same field syntax as above). Optional SQL (or script body) between `</PROPERTIES>` and `</STEP>` runs when the user clicks **Próximo** or **Executar** for that step (`POST /api/queries/...?step=StepId`).
+
+The guided UI and step execution run **only** when the script contains a `--<WIZARD>` … `--</WIZARD>` block. `STEP` blocks alone do **not** enable the wizard (those modules keep a single form and **Executar**).
+
+Define order and labels inside `--<WIZARD>` (if omitted, steps follow file order and use the step id as label):
+
+```sql
+--<STEP ListarValores>
+--<PROPERTIES>
+-- SELECT @?NM_ARQUIVO:VARCHAR:100:=:File name
+--</PROPERTIES>
+SELECT @NM_ARQUIVO AS Arquivo
+--</STEP>
+
+--<STEP Confirmacao>
+--<PROPERTIES>
+-- SELECT @?IC_CONFIRMA:CHAR:1:=:Confirma
+--</PROPERTIES>
+--</STEP>
+
+--<WIZARD>
+-- STEP ListarValores: Lista de valores
+-- STEP Confirmacao: Confirma dos dados
+--</WIZARD>
+```
+
+Rules:
+
+- Field names must be **unique across all steps**.
+- `--RESULT_TYPE=` inside a step overrides the module default for that step only.
+- On the **last** step, if the step has no SQL body, the engine runs the SQL **outside** the `STEP` blocks (same as a classic module).
+- Modules with **no** `--<WIZARD>` block behave exactly as before (single form + **Executar**), even if they contain `STEP` blocks.
+- Modules with **no** `STEP` blocks are always classic modules.
+- Shell/PowerShell modules use `#` instead of `--` for the same tags.
 
 ### Field types (controls)
 
@@ -319,8 +390,8 @@ The lookup result should expose **Code** (option value) and **Value** (option la
 
 The fourth segment is the SQL operator. Common values:
 
-- `=` — equality / variable assignment
-- `LIKE` — on SQL Server the value is wrapped as `'%...%'`
+- `=` - equality / variable assignment
+- `LIKE` - on SQL Server the value is wrapped as `'%...%'`
 
 Numeric types (`INT`, `DECIMAL`, `NUMERIC`, `FLOAT`) are injected unquoted; everything else is quoted.
 

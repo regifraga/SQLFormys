@@ -131,6 +131,17 @@ Write-Output "Valor: $env:NM_EXEMPLO"
 --RESULT_TYPE=GRID
 --TIMEOUT=60
 
+-- Exemplo de wizard (opcional; remova PROPERTIES único abaixo se usar STEPs):
+--<STEP Passo1>
+--<PROPERTIES>
+-- SELECT @?NM_EXEMPLO:VARCHAR:50:=:Exemplo
+--</PROPERTIES>
+-- SELECT @NM_EXEMPLO AS Valor
+--</STEP>
+--<WIZARD>
+-- STEP Passo1: Primeiro passo
+--</WIZARD>
+
 --<PROPERTIES>
 -- SELECT @?NM_EXEMPLO:VARCHAR:50:=:Exemplo
 --</PROPERTIES>
@@ -523,6 +534,75 @@ function openAddNodeModal(apiBaseUrl, parentPath) {
     });
 }
 
+function remapFavoritePath(favorites, fromPath, toPath) {
+    if (!fromPath || !toPath || fromPath === toPath) return favorites;
+    const idx = favorites.indexOf(fromPath);
+    if (idx === -1) return favorites;
+    const next = favorites.slice();
+    next[idx] = toPath;
+    return next;
+}
+
+function openRenameModuleModal(apiBaseUrl, moduleRelPath, moduleName, kind) {
+    const body = document.createElement('div');
+    body.innerHTML = `
+        <div class="form-field-stack">
+            <label for="rename-module-name">Novo nome do módulo</label>
+            <input type="text" id="rename-module-name" class="form-control" value="${moduleName}">
+        </div>
+        <span class="form-field-hint" id="rename-module-hint"></span>
+    `;
+    openAppModal({
+        title: 'Renomear módulo',
+        body,
+        onPrimary: async () => {
+            const newName = body.querySelector('#rename-module-name')?.value?.trim();
+            const hint = body.querySelector('#rename-module-hint');
+            if (!newName) {
+                hint.textContent = 'Informe o novo nome.';
+                hint.classList.add('is-error');
+                return false;
+            }
+            if (/[\\/]/.test(newName)) {
+                hint.textContent = 'O nome não pode conter barras.';
+                hint.classList.add('is-error');
+                return false;
+            }
+            const parent = moduleRelPath.includes('/') ? moduleRelPath.slice(0, moduleRelPath.lastIndexOf('/')) : '';
+            const to = parent ? `${parent}/${newName}` : newName;
+            const normalizedKind = normalizeEditorKind(kind);
+            const res = await apiFetch(`${apiBaseUrl}/admin/modules`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ from: moduleRelPath, to, kind: normalizedKind })
+            });
+            if (!res.ok) {
+                const data = await res.json().catch(() => ({}));
+                hint.textContent = data.error || 'Falha ao renomear.';
+                hint.classList.add('is-error');
+                return false;
+            }
+            if (typeof getFavorites === 'function' && typeof saveFavorites === 'function') {
+                saveFavorites(remapFavoritePath(getFavorites(), moduleRelPath, to));
+            }
+            if (typeof window.sqlformysActiveQueryPath === 'string' && window.sqlformysActiveQueryPath === moduleRelPath) {
+                window.sqlformysActiveQueryPath = to;
+            }
+            if (typeof currentQueryPath !== 'undefined' && currentQueryPath === moduleRelPath) {
+                currentQueryPath = to;
+            }
+            if (sqlEditorPath === moduleRelPath) {
+                sqlEditorPath = to;
+                const sub = document.getElementById('sql-editor-subtitle');
+                if (sub) sub.textContent = to;
+            }
+            await loadProjects();
+            showToast('Estrutura', 'Módulo renomeado.', 'success');
+            return true;
+        }
+    });
+}
+
 function openRenameFolderModal(apiBaseUrl, folderRelPath, folderName) {
     const body = document.createElement('div');
     body.innerHTML = `
@@ -612,7 +692,7 @@ async function openSqlEditor(apiBaseUrl, relPath, initialContent, kind = 'sql') 
     sqlEditorPath = relPath;
     sqlEditorKind = normalizeEditorKind(kind);
     const titleEl = document.getElementById('sql-editor-title');
-    if (titleEl) titleEl.textContent = `Editor — ${moduleKindLabel(sqlEditorKind)}`;
+    if (titleEl) titleEl.textContent = `Editor - ${moduleKindLabel(sqlEditorKind)}`;
     document.getElementById('sql-editor-subtitle').textContent = relPath;
 
     formContainer?.classList.add('hidden');
@@ -798,7 +878,13 @@ function updateFormModuleEditAction(queryPath, apiBaseUrl) {
         btn.dataset.initialized = '1';
         btn.innerHTML = ICON_EDIT;
     }
-    btn.onclick = () => {
+    btn.onclick = async () => {
+        if (typeof window.isFormExecutionBusy === 'function' && window.isFormExecutionBusy()) {
+            const canLeave = typeof window.confirmAbortFormExecutionAndLeave === 'function'
+                ? await window.confirmAbortFormExecutionAndLeave()
+                : false;
+            if (!canLeave) return;
+        }
         const kind = window.sqlformysActiveQueryKind || 'sql';
         openSqlEditor(apiBaseUrl, queryPath, undefined, kind);
     };
@@ -862,6 +948,10 @@ function attachModuleEditAction(moduleLink, path, kind, apiBaseUrl) {
     const actions = document.createElement('span');
     actions.className = 'tree-row-actions';
     const resolvedKind = kind || moduleLink?.dataset?.kind || 'sql';
+    const moduleName = moduleLink.querySelector('.tree-title')?.textContent?.trim() || path.split('/').pop();
+    actions.appendChild(createTreeIconBtn('Renomear módulo', ICON_RENAME, () => {
+        openRenameModuleModal(apiBaseUrl, path, moduleName, resolvedKind);
+    }));
     actions.appendChild(createTreeIconBtn('Editar módulo', ICON_EDIT, () => {
         openSqlEditor(apiBaseUrl, path, undefined, resolvedKind);
     }));

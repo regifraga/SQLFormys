@@ -116,8 +116,20 @@ function getSettingsCache() {
     return settingsCache;
 }
 
+const SIDEBAR_MODULES_COLLAPSED = 'modules:collapsed';
+
 function isSidebarFolderExpanded(id) {
-    return settingsCache.sidebarExpanded.includes(id);
+    const list = settingsCache.sidebarExpanded || [];
+    if (id === 'modules') {
+        if (list.includes(SIDEBAR_MODULES_COLLAPSED)) {
+            return false;
+        }
+        if (list.includes('modules')) {
+            return true;
+        }
+        return true;
+    }
+    return list.includes(id);
 }
 
 function flushPendingPatch() {
@@ -207,7 +219,15 @@ function saveSidebarWidth(px) {
 
 function setSidebarFolderExpanded(id, open) {
     const set = new Set(settingsCache.sidebarExpanded);
-    if (open) {
+    if (id === 'modules') {
+        set.delete('modules');
+        set.delete(SIDEBAR_MODULES_COLLAPSED);
+        if (open) {
+            set.add('modules');
+        } else {
+            set.add(SIDEBAR_MODULES_COLLAPSED);
+        }
+    } else if (open) {
         set.add(id);
     } else {
         set.delete(id);

@@ -15,6 +15,117 @@ import (
 	"sqlformys/internal/modulekind"
 )
 
+// RunScriptStep runs one wizard step body for script modules, or the full script when step has no body.
+func RunScriptStep(ctx context.Context, absPath, kind string, parser *SQLParser, payload map[string]interface{}, stepID string) (domain.QueryResult, error) {
+	if parser == nil {
+		return domain.QueryResult{}, fmt.Errorf("parser inválido")
+	}
+	if !parser.HasWizard() {
+		return RunScript(ctx, absPath, kind, parser, payload)
+	}
+	st, ok := parser.StepByID(stepID)
+	if !ok {
+		return domain.QueryResult{}, fmt.Errorf("step %q não encontrado", stepID)
+	}
+	if strings.TrimSpace(st.Body) == "" {
+		return domain.QueryResult{Columns: []string{}, Rows: []map[string]interface{}{}, ResultType: parser.ResultTypeForStep(stepID)}, nil
+	}
+	rt := parser.ResultTypeForStep(stepID)
+	workParser := *parser
+	workParser.ResultType = rt
+	payload = copyPayload(payload)
+	payload["SQLFORMYS_STEP"] = stepID
+	return runScriptBody(ctx, absPath, kind, &workParser, payload, st.Body)
+}
+
+func copyPayload(src map[string]interface{}) map[string]interface{} {
+	out := make(map[string]interface{}, len(src)+1)
+	for k, v := range src {
+		out[k] = v
+	}
+	return out
+}
+
+func runScriptBody(ctx context.Context, absPath, kind string, parser *SQLParser, payload map[string]interface{}, body string) (domain.QueryResult, error) {
+	timeout := 60
+	if parser.Timeout > 0 {
+		timeout = parser.Timeout
+	}
+	runCtx, cancel := context.WithTimeout(ctx, time.Duration(timeout)*time.Second)
+	defer cancel()
+
+	env := os.Environ()
+	for _, field := range parser.Fields {
+		val, exists := payload[field.Field]
+		if !exists || val == nil {
+			val = ""
+		}
+		env = append(env, fmt.Sprintf("%s=%s", field.Field, formatEnvValue(val)))
+	}
+	if stepVal, ok := payload["SQLFORMYS_STEP"]; ok {
+		env = append(env, fmt.Sprintf("SQLFORMYS_STEP=%s", formatEnvValue(stepVal)))
+	}
+
+	scriptPath, err := filepath.Abs(absPath)
+	if err != nil {
+		return domain.QueryResult{}, fmt.Errorf("caminho do script inválido: %w", err)
+	}
+
+	var cmd *exec.Cmd
+	switch modulekind.NormalizeKind(kind) {
+	case modulekind.KindSH:
+		bash, err := exec.LookPath("bash")
+		if err != nil {
+			sh, err2 := exec.LookPath("sh")
+			if err2 != nil {
+				return domain.QueryResult{}, fmt.Errorf("bash/sh não encontrado no PATH")
+			}
+			bash = sh
+		}
+		cmd = exec.CommandContext(runCtx, bash, "-c", body)
+	case modulekind.KindPS1:
+		pwsh, err := resolvePwshExecutable()
+		if err != nil {
+			return domain.QueryResult{}, err
+		}
+		cmd = exec.CommandContext(runCtx, pwsh, "-NoProfile", "-NonInteractive", "-Command", body)
+	default:
+		return domain.QueryResult{}, fmt.Errorf("tipo de script não suportado: %s", kind)
+	}
+	cmd.Env = env
+	cmd.Dir = filepath.Dir(scriptPath)
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		msg := strings.TrimSpace(stderr.String())
+		if msg == "" {
+			msg = err.Error()
+		}
+		return domain.QueryResult{}, fmt.Errorf("falha ao executar script: %s", msg)
+	}
+
+	out := stdout.String()
+	resultType := parser.ResultType
+	if resultType == "" {
+		resultType = "TEXT"
+	}
+	if strings.EqualFold(resultType, "GRID") {
+		qr, err := gridFromScriptJSON(out)
+		if err != nil {
+			return domain.QueryResult{}, err
+		}
+		qr.ResultType = "GRID"
+		return qr, nil
+	}
+	return domain.QueryResult{
+		Columns:    []string{"stdout"},
+		Rows:       []map[string]interface{}{{"stdout": out}},
+		ResultType: resultType,
+	}, nil
+}
+
 // RunScript executes a .sh or .ps1 module with form values passed as environment variables.
 func RunScript(ctx context.Context, absPath, kind string, parser *SQLParser, payload map[string]interface{}) (domain.QueryResult, error) {
 	if parser == nil {
