@@ -129,6 +129,28 @@ func (h *QueryHandler) ExecuteQuery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	namedQuery := strings.TrimSpace(r.URL.Query().Get("namedQuery"))
+	if namedQuery != "" {
+		results, finalSQL, err := h.svc.ExecuteNamedQuery(r.Context(), basePath, filepathParam, kind, namedQuery, payload, h.cfg.DBDriver, h.cfg.DBDsn)
+		if err != nil {
+			log.Printf("ERROR: Falha na execução da QUERY nomeada %s em %s | Payload: %+v | Erro: %v | SQL Gerado: %s",
+				namedQuery, filepathParam, payload, err, finalSQL)
+			var debugQuery string
+			if h.cfg.Environment == "development" || h.cfg.Environment == "local" {
+				debugQuery = finalSQL
+			}
+			status := http.StatusInternalServerError
+			if strings.Contains(strings.ToLower(err.Error()), "não encontrado") {
+				status = http.StatusNotFound
+			}
+			respondWithError(w, status, err.Error(), debugQuery)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(results)
+		return
+	}
+
 	stepID := strings.TrimSpace(r.URL.Query().Get("step"))
 	results, finalSQL, err := h.svc.ExecuteQuery(r.Context(), basePath, filepathParam, kind, stepID, payload, h.cfg.DBDriver, h.cfg.DBDsn)
 	if err != nil {

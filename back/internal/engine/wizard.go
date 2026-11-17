@@ -32,6 +32,7 @@ func wizardBlockRegexFor(prefix string) *regexp.Regexp {
 
 var wizardStepLineRegex = regexp.MustCompile(`(?i)^STEP\s+([A-Za-z][A-Za-z0-9_]*)\s*:\s*(.+)$`)
 var wizardSummaryLineRegex = regexp.MustCompile(`(?i)^SUMMARY\s*(.*)$`)
+var wizardSummaryNamedQueryRegex = regexp.MustCompile(`(?i)^QUERY\s*\(\s*([A-Za-z][A-Za-z0-9_]*)\s*\)\s*(.*)$`)
 var wizardFieldNameTokenRegex = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 var wizardSummaryFieldsWithLabelRegex = regexp.MustCompile(`(?i)^([A-Za-z_][A-Za-z0-9_]*(?:\s*,\s*[A-Za-z_][A-Za-z0-9_]*)+)\s*:\s*(.+)$`)
 
@@ -68,33 +69,46 @@ func isWizardSummaryFieldList(raw string) bool {
 	return err == nil
 }
 
-func parseSummaryDirectiveArgs(args string) (label string, fields []string, err error) {
+func parseSummaryDirectiveArgs(args string) (label string, fields []string, queryName string, err error) {
 	label = defaultWizardSummaryLabel
 	args = strings.TrimSpace(args)
 	if args == "" {
-		return label, nil, nil
+		return label, nil, "", nil
+	}
+	if m := wizardSummaryNamedQueryRegex.FindStringSubmatch(args); len(m) >= 2 {
+		queryName = strings.TrimSpace(m[1])
+		rest := strings.TrimSpace(m[2])
+		if strings.HasPrefix(rest, ":") {
+			label = strings.TrimSpace(strings.TrimPrefix(rest, ":"))
+			if label == "" {
+				return "", nil, "", fmt.Errorf("diretiva SUMMARY com rótulo vazio")
+			}
+		} else if rest != "" {
+			return "", nil, "", fmt.Errorf("diretiva SUMMARY QUERY inválida")
+		}
+		return label, nil, queryName, nil
 	}
 	if strings.HasPrefix(args, ":") {
 		text := strings.TrimSpace(strings.TrimPrefix(args, ":"))
 		if text == "" {
-			return "", nil, fmt.Errorf("diretiva SUMMARY com rótulo vazio")
+			return "", nil, "", fmt.Errorf("diretiva SUMMARY com rótulo vazio")
 		}
 		if isWizardSummaryFieldList(text) {
 			fields, err = splitWizardSummaryFieldList(text)
-			return label, fields, err
+			return label, fields, "", err
 		}
-		return text, nil, nil
+		return text, nil, "", nil
 	}
 	if m := wizardSummaryFieldsWithLabelRegex.FindStringSubmatch(args); len(m) >= 3 {
 		fields, err = splitWizardSummaryFieldList(m[1])
 		if err != nil {
-			return "", nil, err
+			return "", nil, "", err
 		}
-		return strings.TrimSpace(m[2]), fields, nil
+		return strings.TrimSpace(m[2]), fields, "", nil
 	}
 	if isWizardSummaryFieldList(args) {
 		fields, err = splitWizardSummaryFieldList(args)
-		return label, fields, err
+		return label, fields, "", err
 	}
 	if strings.Contains(args, ":") {
 		left, right, ok := strings.Cut(args, ":")
@@ -104,30 +118,31 @@ func parseSummaryDirectiveArgs(args string) (label string, fields []string, err 
 			if left != "" && isWizardSummaryFieldList(left) {
 				fields, err = splitWizardSummaryFieldList(left)
 				if err != nil {
-					return "", nil, err
+					return "", nil, "", err
 				}
 				if right == "" {
-					return "", nil, fmt.Errorf("diretiva SUMMARY com rótulo vazio")
+					return "", nil, "", fmt.Errorf("diretiva SUMMARY com rótulo vazio")
 				}
-				return right, fields, nil
+				return right, fields, "", nil
 			}
 		}
 	}
 	if strings.HasPrefix(strings.ToUpper(args), "SUMMARY") {
-		return "", nil, fmt.Errorf("diretiva SUMMARY inválida")
+		return "", nil, "", fmt.Errorf("diretiva SUMMARY inválida")
 	}
-	return args, nil, nil
+	return args, nil, "", nil
 }
 
-func parseWizardSummary(content, linePrefix string) (enabled bool, label string, fields []string, err error) {
+func parseWizardSummary(content, linePrefix string) (enabled bool, label string, fields []string, queryName string, err error) {
 	re := wizardBlockRegexFor(linePrefix)
 	match := re.FindStringSubmatch(content)
 	if len(match) < 2 {
-		return false, "", nil, nil
+		return false, "", nil, "", nil
 	}
 	var found bool
 	var summaryLabel string
 	var summaryFields []string
+	var summaryQuery string
 	for _, line := range strings.Split(match[1], "\n") {
 		line = strings.TrimSpace(line)
 		if !isLineComment(line, linePrefix) {
@@ -139,22 +154,22 @@ func parseWizardSummary(content, linePrefix string) (enabled bool, label string,
 			continue
 		}
 		if found {
-			return false, "", nil, fmt.Errorf("diretiva SUMMARY duplicada no bloco WIZARD")
+			return false, "", nil, "", fmt.Errorf("diretiva SUMMARY duplicada no bloco WIZARD")
 		}
 		found = true
 		argPart := ""
 		if len(sub) >= 2 {
 			argPart = sub[1]
 		}
-		summaryLabel, summaryFields, err = parseSummaryDirectiveArgs(argPart)
+		summaryLabel, summaryFields, summaryQuery, err = parseSummaryDirectiveArgs(argPart)
 		if err != nil {
-			return false, "", nil, err
+			return false, "", nil, "", err
 		}
 	}
 	if !found {
-		return false, "", nil, nil
+		return false, "", nil, "", nil
 	}
-	return true, summaryLabel, summaryFields, nil
+	return true, summaryLabel, summaryFields, summaryQuery, nil
 }
 
 func validateWizardSummaryFields(fieldNames []string, wizardFields []domain.Field) error {
@@ -448,6 +463,7 @@ func (p *SQLParser) WizardMetadata() *domain.WizardMetadata {
 		meta.Summary = &domain.WizardSummaryMeta{
 			Label:      p.WizardSummaryLabel,
 			FieldNames: append([]string(nil), p.WizardSummaryFields...),
+			QueryName:  p.WizardSummaryQuery,
 		}
 		if meta.Summary.Label == "" {
 			meta.Summary.Label = defaultWizardSummaryLabel
@@ -482,6 +498,7 @@ func StripAllStepBlocks(content, linePrefix string) string {
 func extractResidualSQL(content string, d metadataDialect) string {
 	out := content
 	out = StripLookupBlocks(out)
+	out = StripNamedQueryBlocks(out, d.linePrefix)
 	out = StripWizardBlocks(out, d.linePrefix)
 	out = StripAllStepBlocks(out, d.linePrefix)
 	out = d.propertiesRegex.ReplaceAllString(out, "")
@@ -514,7 +531,7 @@ func InjectStepValues(fileContent, stepID, moduleKind string, values map[string]
 
 	isLast := len(parserSteps) > 0 && strings.EqualFold(parserSteps[len(parserSteps)-1].ID, stepID)
 
-	sqlContent := StripLookupBlocks(fileContent)
+	sqlContent := StripNamedQueryBlocks(StripLookupBlocks(fileContent), d.linePrefix)
 	sqlContent = StripWizardBlocks(sqlContent, d.linePrefix)
 	sqlContent = applyConditionalComments(sqlContent, values, fields)
 
@@ -527,6 +544,15 @@ func InjectStepValues(fileContent, stepID, moduleKind string, values map[string]
 		body = extractResidualSQL(fileContent, d)
 	}
 	if body == "" {
+		return "", nil
+	}
+
+	qp := queryParserFromContent(fileContent, d)
+	body, err = ExpandQueryReferences(body, qp, d.linePrefix)
+	if err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(body) == "" {
 		return "", nil
 	}
 
@@ -550,6 +576,15 @@ func InjectStepValues(fileContent, stepID, moduleKind string, values map[string]
 	}
 
 	return execSQL, nil
+}
+
+func queryParserFromContent(fileContent string, d metadataDialect) *SQLParser {
+	named, _ := ParseNamedQueryBlocks(fileContent, d.linePrefix)
+	p := &SQLParser{NamedQueries: named, ModuleQueryRef: parseModuleQueryDirective(fileContent, d.linePrefix)}
+	if rtMatch := d.resultTypeRegex.FindStringSubmatch(fileContent); len(rtMatch) > 1 {
+		_, p.ResultTypeQueryRef = parseResultTypeAndQueryRef(rtMatch[1])
+	}
+	return p
 }
 
 func collectFieldPrefixesFromContent(content string, d metadataDialect) map[string]string {

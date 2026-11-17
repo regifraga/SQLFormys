@@ -806,6 +806,17 @@ body.is-resizing .main-content {
     overflow: visible;
 }
 
+/* Com overflow:visible, o fundo do rodapé não segue o border-radius do .card — arredonda manualmente */
+.form-card > .card-header {
+    border-top-left-radius: 8px;
+    border-top-right-radius: 8px;
+}
+
+.form-card > .card-footer {
+    border-bottom-left-radius: 8px;
+    border-bottom-right-radius: 8px;
+}
+
 .form-execution-busy .card-body {
     pointer-events: none;
     opacity: 0.96;

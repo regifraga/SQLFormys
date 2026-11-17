@@ -421,8 +421,21 @@ document.addEventListener('DOMContentLoaded', async () => {
                 handleClear();
             }
         } else if (e.key === 'Enter') {
+            const target = e.target;
+            if (target && target.tagName === 'TEXTAREA') {
+                return;
+            }
             e.preventDefault();
-            handleExecute();
+            const wizardUsesNext = isWizardModule()
+                && btnExecute
+                && btnExecute.classList.contains('hidden')
+                && btnWizardNext
+                && !btnWizardNext.classList.contains('hidden');
+            if (wizardUsesNext) {
+                void handleWizardNext();
+            } else {
+                handleExecute();
+            }
         }
     });
 });
@@ -496,10 +509,13 @@ function queriesApiUrl(queryPath, kind) {
     return `${API_BASE_URL}/queries/${queryPath}${moduleKindQueryParam(kind)}`;
 }
 
-function queriesExecuteUrl(queryPath, kind, stepId) {
+function queriesExecuteUrl(queryPath, kind, stepId = '', namedQuery = '') {
     let url = queriesApiUrl(queryPath, kind);
     if (stepId) {
         url += `&step=${encodeURIComponent(stepId)}`;
+    }
+    if (namedQuery) {
+        url += `&namedQuery=${encodeURIComponent(namedQuery)}`;
     }
     return url;
 }
@@ -667,7 +683,7 @@ function updateWizardStepVisibility() {
     if (isOnWizardSummaryStep()) {
         gridContainer.classList.add('hidden');
         currentQueryResult = null;
-        renderWizardSummary();
+        void renderWizardSummary();
     }
     refreshInterpolatedTexts();
     syncWizardFooterButtons();
@@ -1418,7 +1434,64 @@ function appendWizardSummaryTable(parent, fields) {
     parent.appendChild(table);
 }
 
-function renderWizardSummary() {
+function appendWizardSummaryQueryGrid(parent, resultData) {
+    const columns = Array.isArray(resultData?.columns) ? resultData.columns : [];
+    const rows = Array.isArray(resultData?.rows) ? resultData.rows : [];
+    if (!columns.length || !rows.length) {
+        const empty = document.createElement('p');
+        empty.className = 'wizard-review-empty';
+        empty.textContent = 'Nenhum registro para exibir.';
+        parent.appendChild(empty);
+        return;
+    }
+    const table = document.createElement('table');
+    table.className = 'wizard-review-table data-table';
+    const thead = document.createElement('thead');
+    const headRow = document.createElement('tr');
+    columns.forEach((col) => {
+        const th = document.createElement('th');
+        th.scope = 'col';
+        th.textContent = col;
+        headRow.appendChild(th);
+    });
+    thead.appendChild(headRow);
+    table.appendChild(thead);
+    const tbody = document.createElement('tbody');
+    rows.forEach((row) => {
+        const tr = document.createElement('tr');
+        columns.forEach((col) => {
+            const td = document.createElement('td');
+            td.textContent = formatGridCellForDisplay(row[col]);
+            tr.appendChild(td);
+        });
+        tbody.appendChild(tr);
+    });
+    table.appendChild(tbody);
+    parent.appendChild(table);
+}
+
+async function fetchNamedQueryPreview(queryName) {
+    const response = await apiFetch(
+        queriesExecuteUrl(currentQueryPath, currentQueryKind, '', queryName),
+        {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(collectFormValues(true))
+        }
+    );
+    if (!response.ok) {
+        const errorText = await response.text();
+        let errorMessage = errorText;
+        try {
+            const errorJson = JSON.parse(errorText);
+            if (errorJson.error) errorMessage = errorJson.error;
+        } catch (_e) { /* keep raw */ }
+        throw new Error(errorMessage || 'Falha ao carregar preview da QUERY');
+    }
+    return response.json();
+}
+
+async function renderWizardSummary() {
     const pane = getWizardPaneForStep(WIZARD_SUMMARY_STEP_ID);
     if (!pane || !isWizardModule()) return;
     pane.innerHTML = '';
@@ -1428,6 +1501,26 @@ function renderWizardSummary() {
     intro.className = 'wizard-review-intro';
     intro.textContent = 'Revise os dados antes de executar.';
     wrap.appendChild(intro);
+
+    const summaryQueryName = String(currentWizard.summary?.queryName || '').trim();
+    if (summaryQueryName) {
+        const section = document.createElement('section');
+        section.className = 'wizard-review-section';
+        const loading = document.createElement('p');
+        loading.className = 'wizard-review-loading';
+        loading.textContent = 'Carregando…';
+        section.appendChild(loading);
+        wrap.appendChild(section);
+        pane.appendChild(wrap);
+        try {
+            const data = await fetchNamedQueryPreview(summaryQueryName);
+            loading.remove();
+            appendWizardSummaryQueryGrid(section, data);
+        } catch (err) {
+            loading.textContent = err?.message || 'Não foi possível carregar a consulta de resumo.';
+        }
+        return;
+    }
 
     const summarySubset = Array.isArray(currentWizard.summary?.fieldNames)
         ? currentWizard.summary.fieldNames

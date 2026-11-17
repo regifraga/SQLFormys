@@ -21,11 +21,15 @@ type SQLParser struct {
 	Timeout     int
 	Fields      []domain.Field
 	Lookups       map[string]string
+	NamedQueries  map[string]string
+	ModuleQueryRef      string // from --QUERY(Name)
+	ResultTypeQueryRef  string // from --RESULT_TYPE=GRID QUERY(Name)
 	Steps         []StepDefinition
 	WizardEnabled   bool   // true only when --<WIZARD> ... --</WIZARD> is present
 	WizardSummary        bool     // true when WIZARD block contains SUMMARY directive
 	WizardSummaryLabel   string
 	WizardSummaryFields  []string // empty = show all visible wizard fields
+	WizardSummaryQuery   string   // SUMMARY QUERY(Name)
 }
 
 var (
@@ -127,18 +131,25 @@ func StripLookupBlocks(sqlContent string) string {
 	return lookupBlockRegex.ReplaceAllString(sqlContent, "")
 }
 
+func stripNamedQueriesForSQL(sqlContent string) string {
+	return StripNamedQueryBlocks(sqlContent, "--")
+}
+
 // extractSqlServerDeclareBlock returns the DECLARE section at the top of a script (before --<PROPERTIES>).
 func extractSqlServerDeclareBlock(fileContent string) string {
-	content := StripLookupBlocks(fileContent)
+	content := stripNamedQueriesForSQL(StripLookupBlocks(fileContent))
 	loc := declareStartRegex.FindStringIndex(content)
 	if loc == nil {
 		return ""
 	}
 	rest := content[loc[0]:]
 	end := len(rest)
-	if propLoc := propertiesStartRegex.FindStringIndex(rest); propLoc != nil {
+	propLoc := propertiesStartRegex.FindStringIndex(rest)
+	sqlLoc := mainSQLStartRegex.FindStringIndex(rest)
+	if propLoc != nil {
 		end = propLoc[0]
-	} else if sqlLoc := mainSQLStartRegex.FindStringIndex(rest); sqlLoc != nil && sqlLoc[0] > 0 {
+	}
+	if sqlLoc != nil && sqlLoc[0] > 0 && sqlLoc[0] < end {
 		end = sqlLoc[0]
 	}
 	block := strings.TrimSpace(rest[:end])
@@ -151,16 +162,19 @@ func extractSqlServerDeclareBlock(fileContent string) string {
 // stripSqlServerDeclareBlock removes the DECLARE preamble so it is not duplicated when
 // the engine prepends extractSqlServerDeclareBlock separately (e.g. wizard residual SQL).
 func stripSqlServerDeclareBlock(content string) string {
-	content = StripLookupBlocks(content)
+	content = stripNamedQueriesForSQL(StripLookupBlocks(content))
 	loc := declareStartRegex.FindStringIndex(content)
 	if loc == nil {
 		return content
 	}
 	rest := content[loc[0]:]
 	end := len(rest)
-	if propLoc := propertiesStartRegex.FindStringIndex(rest); propLoc != nil {
+	propLoc := propertiesStartRegex.FindStringIndex(rest)
+	sqlLoc := mainSQLStartRegex.FindStringIndex(rest)
+	if propLoc != nil {
 		end = propLoc[0]
-	} else if sqlLoc := mainSQLStartRegex.FindStringIndex(rest); sqlLoc != nil && sqlLoc[0] > 0 {
+	}
+	if sqlLoc != nil && sqlLoc[0] > 0 && sqlLoc[0] < end {
 		end = sqlLoc[0]
 	}
 	if end == 0 || end >= len(rest) {
@@ -238,7 +252,8 @@ func ParseMetadataForKind(content, kind string) (*SQLParser, error) {
 		OriginalSQL: content,
 		ResultType:  d.defaultResult,
 		Fields:      make([]domain.Field, 0),
-		Lookups:     make(map[string]string),
+		Lookups:       make(map[string]string),
+		NamedQueries:  make(map[string]string),
 	}
 
 	if d.allowLookups {
@@ -276,7 +291,15 @@ func ParseMetadataForKind(content, kind string) (*SQLParser, error) {
 	}
 
 	if resultTypeMatch := d.resultTypeRegex.FindStringSubmatch(content); len(resultTypeMatch) > 1 {
-		parser.ResultType = NormalizeResultType(resultTypeMatch[1])
+		rtRaw, rtQuery := parseResultTypeAndQueryRef(resultTypeMatch[1])
+		parser.ResultType = NormalizeResultType(rtRaw)
+		parser.ResultTypeQueryRef = rtQuery
+	}
+	parser.ModuleQueryRef = parseModuleQueryDirective(content, d.linePrefix)
+	if nq, nqErr := ParseNamedQueryBlocks(content, d.linePrefix); nqErr != nil {
+		return nil, nqErr
+	} else if len(nq) > 0 {
+		parser.NamedQueries = nq
 	}
 
 	steps, err := parseStepBlocks(content, d, parser.ResultType)
@@ -290,13 +313,19 @@ func ParseMetadataForKind(content, kind string) (*SQLParser, error) {
 			parser.Fields = append(parser.Fields, st.Fields...)
 		}
 		if parser.WizardEnabled {
-			summaryOn, summaryLabel, summaryFields, sumErr := parseWizardSummary(content, d.linePrefix)
+			summaryOn, summaryLabel, summaryFields, summaryQuery, sumErr := parseWizardSummary(content, d.linePrefix)
 			if sumErr != nil {
 				return nil, sumErr
 			}
 			parser.WizardSummary = summaryOn
 			parser.WizardSummaryLabel = summaryLabel
 			parser.WizardSummaryFields = summaryFields
+			parser.WizardSummaryQuery = summaryQuery
+			if summaryOn && summaryQuery != "" {
+				if _, ok := parser.NamedQuerySQL(summaryQuery); !ok {
+					return nil, fmt.Errorf("SUMMARY referencia QUERY inexistente %q", summaryQuery)
+				}
+			}
 			if summaryOn && len(summaryFields) > 0 {
 				if err := validateWizardSummaryFields(summaryFields, parser.Fields); err != nil {
 					return nil, err
@@ -486,7 +515,7 @@ func normalizeDateFieldValue(valStr string, field domain.Field) string {
 
 // InjectValues takes the original SQL and user values, replaces the PROPERTIES block with SELECT injections (or SET statements for Postgres)
 func InjectValues(sqlContent string, values map[string]interface{}, fields []domain.Field, driver string) string {
-	sqlContent = StripLookupBlocks(sqlContent)
+	sqlContent = stripNamedQueriesForSQL(StripLookupBlocks(sqlContent))
 	sqlContent = applyConditionalComments(sqlContent, values, fields)
 
 	if isPostgresDriver(driver) {

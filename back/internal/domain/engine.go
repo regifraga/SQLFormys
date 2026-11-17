@@ -32,6 +32,7 @@ type WizardStepMeta struct {
 type WizardSummaryMeta struct {
 	Label      string   `json:"label"`
 	FieldNames []string `json:"fieldNames,omitempty"`
+	QueryName  string   `json:"queryName,omitempty"`
 }
 
 // WizardMetadata is returned when a module defines STEP/WIZARD blocks.
@@ -91,5 +92,6 @@ type DynamicQueryService interface {
 	ListProjects(basePath string, includeLibraries bool) ([]TreeNode, error)
 	GetMetadata(basePath, queryPath, kind string) (MetadataResponse, error)
 	ExecuteQuery(ctx context.Context, basePath, queryPath, kind, stepID string, payload map[string]interface{}, defaultDriver, defaultDsn string) (QueryResult, string, error)
+	ExecuteNamedQuery(ctx context.Context, basePath, queryPath, kind, queryName string, payload map[string]interface{}, defaultDriver, defaultDsn string) (QueryResult, string, error)
 	ExecuteLookup(ctx context.Context, basePath, queryPath, kind, lookupName, lookupField string, payload map[string]interface{}, defaultDriver, defaultDsn string) (LookupResult, string, error)
 }

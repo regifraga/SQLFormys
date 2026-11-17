@@ -214,6 +214,42 @@ func (s *queryService) ExecuteQuery(ctx context.Context, basePath, queryPath, ki
 	}
 
 	finalSQL := engine.InjectValues(expanded, payload, parser.Fields, defaultDriver)
+	linePrefix := "--"
+	if resolvedKind != modulekind.KindSQL {
+		linePrefix = "#"
+	}
+	finalSQL, err = engine.ExpandQueryReferences(finalSQL, parser, linePrefix)
+	if err != nil {
+		return domain.QueryResult{}, "", err
+	}
+	return s.runPreparedSQL(ctx, parser, finalSQL, payload, defaultDriver, defaultDsn)
+}
+
+func (s *queryService) ExecuteNamedQuery(ctx context.Context, basePath, queryPath, kind, queryName string, payload map[string]interface{}, defaultDriver, defaultDsn string) (domain.QueryResult, string, error) {
+	absPath, resolvedKind, err := modulekind.ResolveModule(basePath, queryPath, kind)
+	if err != nil {
+		return domain.QueryResult{}, "", err
+	}
+	if resolvedKind != modulekind.KindSQL {
+		return domain.QueryResult{}, "", fmt.Errorf("QUERY nomeado não suportado neste tipo de módulo (%s)", resolvedKind)
+	}
+	content, err := os.ReadFile(absPath)
+	if err != nil {
+		return domain.QueryResult{}, "", fmt.Errorf("erro ao ler módulo: %w", err)
+	}
+	expanded, err := engine.ExpandIncludes(basePath, string(content), resolvedKind)
+	if err != nil {
+		return domain.QueryResult{}, "", err
+	}
+	parser, err := engine.ParseMetadataForKind(expanded, resolvedKind)
+	if err != nil {
+		return domain.QueryResult{}, "", fmt.Errorf("erro ao fazer parse do módulo: %w", err)
+	}
+	querySQL, ok := parser.NamedQuerySQL(queryName)
+	if !ok || strings.TrimSpace(querySQL) == "" {
+		return domain.QueryResult{}, "", fmt.Errorf("QUERY %q não encontrado no módulo", queryName)
+	}
+	finalSQL := engine.InjectNamedQueryValues(expanded, querySQL, resolvedKind, payload, parser.Fields, defaultDriver)
 	return s.runPreparedSQL(ctx, parser, finalSQL, payload, defaultDriver, defaultDsn)
 }
 
