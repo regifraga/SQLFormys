@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"time"
 
 	"sqlformys/internal/domain"
 )
@@ -175,13 +176,78 @@ func ValidateLookupPrerequisites(lookupSQL, lookupField string, fields []domain.
 	return &LookupPrerequisiteError{MissingLabels: missingLabels}
 }
 
-// LookupNameFromFieldType extracts the lookup block name from LOOKUP(Name) / LOOKUP_MULTI(Name).
-func LookupNameFromFieldType(fieldType string) string {
+// ParseLookupFieldType extracts the lookup block name and optional inline cache TTL.
+func ParseLookupFieldType(fieldType string) (name string, cacheTTL time.Duration, err error) {
 	match := lookupFieldTypeRegex.FindStringSubmatch(strings.TrimSpace(fieldType))
 	if len(match) < 2 {
-		return ""
+		return "", 0, nil
 	}
-	return strings.TrimSpace(match[1])
+	inner := strings.TrimSpace(match[1])
+	parts := strings.SplitN(inner, ",", 2)
+	name = strings.TrimSpace(parts[0])
+	if name == "" {
+		return "", 0, nil
+	}
+	if len(parts) < 2 {
+		return name, 0, nil
+	}
+	cacheTTL, err = ParseCacheArg(strings.TrimSpace(parts[1]))
+	if err != nil {
+		return "", 0, err
+	}
+	return name, cacheTTL, nil
+}
+
+// LookupNameFromFieldType extracts the lookup block name from LOOKUP(Name) / LOOKUP_MULTI(Name).
+func LookupNameFromFieldType(fieldType string) string {
+	name, _, _ := ParseLookupFieldType(fieldType)
+	return name
+}
+
+// ApplyLookupFieldMetadata sets inline cache metadata on a LOOKUP field.
+func ApplyLookupFieldMetadata(field *domain.Field) error {
+	name, ttl, err := ParseLookupFieldType(field.Type)
+	if name == "" {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("campo %s: %w", field.Field, err)
+	}
+	field.LookupCacheTTL = int64(ttl)
+	if ttl > 0 {
+		field.Cache = FormatCacheDuration(ttl)
+	}
+	return nil
+}
+
+// ResolveLookupTTL returns effective cache TTL: inline field > block > none.
+func ResolveLookupTTL(parser *SQLParser, lookupName, lookupField string) time.Duration {
+	if parser == nil {
+		return 0
+	}
+	lookupName = strings.TrimSpace(lookupName)
+	lookupField = strings.TrimSpace(lookupField)
+	if lookupField != "" {
+		for _, field := range parser.Fields {
+			if !strings.EqualFold(field.Field, lookupField) {
+				continue
+			}
+			if name := LookupNameFromFieldType(field.Type); name != "" && strings.EqualFold(name, lookupName) {
+				if d := time.Duration(field.LookupCacheTTL); d > 0 {
+					return d
+				}
+				break
+			}
+		}
+	}
+	if parser.LookupCacheTTL != nil {
+		for k, v := range parser.LookupCacheTTL {
+			if strings.EqualFold(k, lookupName) && v > 0 {
+				return v
+			}
+		}
+	}
+	return 0
 }
 
 func appendDependsOnUnique(dependsOn []string, fieldName string) []string {
@@ -230,7 +296,8 @@ func ApplyLookupDependencies(fields []domain.Field, lookups map[string]string) (
 			}
 			dependsOn = appendDependsOnUnique(dependsOn, formField.Field)
 		}
-		metadata[lookupName] = domain.LookupMetadata{DependsOn: dependsOn}
+		meta := domain.LookupMetadata{DependsOn: dependsOn}
+		metadata[lookupName] = meta
 	}
 
 	enriched := make([]domain.Field, len(fields))

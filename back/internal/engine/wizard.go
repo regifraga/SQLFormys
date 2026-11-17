@@ -303,6 +303,9 @@ func parseFieldsFromPropertiesBlock(propertiesBlock string, d metadataDialect, s
 		if !d.allowLookups && fieldUsesLookup(typePart) {
 			return nil, fmt.Errorf("tipo LOOKUP não suportado em módulos %s (campo %s)", d.kind, fieldName)
 		}
+		if err := ApplyLookupFieldMetadata(&field); err != nil {
+			return nil, err
+		}
 		fields = append(fields, field)
 	}
 	return fields, nil
@@ -503,7 +506,7 @@ func extractResidualSQL(content string, d metadataDialect) string {
 	out = StripAllStepBlocks(out, d.linePrefix)
 	out = d.propertiesRegex.ReplaceAllString(out, "")
 	// Strip header tags
-	for _, tag := range []string{"SERVER", "TIMEOUT", "DESCRIPTION", "EXECUTE_MODE", "RESULT_TYPE", "INCLUDE"} {
+	for _, tag := range []string{"SERVER", "TIMEOUT", "DESCRIPTION", "EXECUTE_MODE", "RESULT_TYPE", "INCLUDE", "CACHE"} {
 		out = tagRegex(d.linePrefix, tag).ReplaceAllString(out, "")
 	}
 	out = StripConfirmDirectives(out, d.linePrefix)

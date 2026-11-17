@@ -15,8 +15,10 @@ type Field struct {
 	DependsOn    []string `json:"dependsOn,omitempty"`
 	ContextKey   string   `json:"contextKey,omitempty"`
 	Hidden       bool     `json:"hidden,omitempty"`
+	Cache        string   `json:"cache,omitempty"` // inline LOOKUP TTL (ex. 30s)
 	Operator     string   `json:"-"` // Internal use for building query, typically '='
 	DbType       string   `json:"-"` // Internal use for database type (e.g. for SINGLE)
+	LookupCacheTTL int64  `json:"-"` // nanoseconds; inline LOOKUP cache override
 }
 
 // WizardStepMeta describes one step in a guided wizard module.
@@ -65,6 +67,7 @@ type MetadataResponse struct {
 	ExecuteMode string                    `json:"executeMode"`
 	ResultType  string                    `json:"resultType"`
 	Timeout     int                       `json:"timeout"`
+	Cache       string                    `json:"cache,omitempty"` // module --CACHE (ex. 15s)
 	Confirm     *ConfirmMetadata          `json:"confirm,omitempty"`
 	Fields      []Field                   `json:"fields"`
 	Lookups     map[string]LookupMetadata `json:"lookups,omitempty"`
@@ -74,6 +77,7 @@ type MetadataResponse struct {
 // LookupMetadata describes a named lookup block declared in the SQL module.
 type LookupMetadata struct {
 	DependsOn []string `json:"dependsOn"`
+	Cache     string   `json:"cache,omitempty"` // block-level TTL (ex. 2m)
 }
 
 // QueryResult represents the result of a dynamic query execution, preserving column order.
@@ -98,7 +102,7 @@ type LookupResult struct {
 type DynamicQueryService interface {
 	ListProjects(basePath string, includeLibraries bool) ([]TreeNode, error)
 	GetMetadata(basePath, queryPath, kind string) (MetadataResponse, error)
-	ExecuteQuery(ctx context.Context, basePath, queryPath, kind, stepID string, payload map[string]interface{}, defaultDriver, defaultDsn string) (QueryResult, string, error)
-	ExecuteNamedQuery(ctx context.Context, basePath, queryPath, kind, queryName string, payload map[string]interface{}, defaultDriver, defaultDsn string) (QueryResult, string, error)
-	ExecuteLookup(ctx context.Context, basePath, queryPath, kind, lookupName, lookupField string, payload map[string]interface{}, defaultDriver, defaultDsn string) (LookupResult, string, error)
+	ExecuteQuery(ctx context.Context, basePath, queryPath, kind, stepID string, payload map[string]interface{}, defaultDriver, defaultDsn string) (QueryResult, string, string, error)
+	ExecuteNamedQuery(ctx context.Context, basePath, queryPath, kind, queryName string, payload map[string]interface{}, defaultDriver, defaultDsn string) (QueryResult, string, string, error)
+	ExecuteLookup(ctx context.Context, basePath, queryPath, kind, lookupName, lookupField string, payload map[string]interface{}, defaultDriver, defaultDsn string) (LookupResult, string, string, error)
 }

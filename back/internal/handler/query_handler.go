@@ -131,7 +131,7 @@ func (h *QueryHandler) ExecuteQuery(w http.ResponseWriter, r *http.Request) {
 
 	namedQuery := strings.TrimSpace(r.URL.Query().Get("namedQuery"))
 	if namedQuery != "" {
-		results, finalSQL, err := h.svc.ExecuteNamedQuery(r.Context(), basePath, filepathParam, kind, namedQuery, payload, h.cfg.DBDriver, h.cfg.DBDsn)
+		results, finalSQL, cacheStatus, err := h.svc.ExecuteNamedQuery(r.Context(), basePath, filepathParam, kind, namedQuery, payload, h.cfg.DBDriver, h.cfg.DBDsn)
 		if err != nil {
 			log.Printf("ERROR: Falha na execução da QUERY nomeada %s em %s | Payload: %+v | Erro: %v | SQL Gerado: %s",
 				namedQuery, filepathParam, payload, err, finalSQL)
@@ -147,12 +147,13 @@ func (h *QueryHandler) ExecuteQuery(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("X-Cache", cacheStatus)
 		json.NewEncoder(w).Encode(results)
 		return
 	}
 
 	stepID := strings.TrimSpace(r.URL.Query().Get("step"))
-	results, finalSQL, err := h.svc.ExecuteQuery(r.Context(), basePath, filepathParam, kind, stepID, payload, h.cfg.DBDriver, h.cfg.DBDsn)
+	results, finalSQL, cacheStatus, err := h.svc.ExecuteQuery(r.Context(), basePath, filepathParam, kind, stepID, payload, h.cfg.DBDriver, h.cfg.DBDsn)
 	if err != nil {
 		if strings.Contains(err.Error(), "step") && (strings.Contains(err.Error(), "inválido") || strings.Contains(err.Error(), "não encontrado")) {
 			respondWithError(w, http.StatusBadRequest, err.Error())
@@ -169,6 +170,7 @@ func (h *QueryHandler) ExecuteQuery(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("X-Cache", cacheStatus)
 	json.NewEncoder(w).Encode(results)
 }
 
@@ -227,7 +229,7 @@ func (h *QueryHandler) ExecuteLookup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	results, finalSQL, err := h.svc.ExecuteLookup(r.Context(), basePath, filepathParam, kind, lookupName, lookupField, payload, h.cfg.DBDriver, h.cfg.DBDsn)
+	results, finalSQL, cacheStatus, err := h.svc.ExecuteLookup(r.Context(), basePath, filepathParam, kind, lookupName, lookupField, payload, h.cfg.DBDriver, h.cfg.DBDsn)
 	if err != nil {
 		log.Printf("ERROR: Falha na execução do lookup %s em %s | Driver: %s | Payload: %+v | Erro: %v | SQL Gerado: %s",
 			lookupName, filepathParam, h.cfg.DBDriver, payload, err, finalSQL)
@@ -248,5 +250,6 @@ func (h *QueryHandler) ExecuteLookup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("X-Cache", cacheStatus)
 	json.NewEncoder(w).Encode(results)
 }

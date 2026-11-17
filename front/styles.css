@@ -1115,7 +1115,8 @@ body.is-resizing .main-content {
     flex-shrink: 0;
 }
 
-.custom-select-menu [role="option"].is-filtered-out {
+.custom-select-menu [role="option"].is-filtered-out,
+.custom-select.is-multiple .custom-select-menu [role="option"].is-filtered-out {
     display: none;
 }
 

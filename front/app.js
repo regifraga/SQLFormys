@@ -589,6 +589,9 @@ function syncWizardFooterButtons() {
         btnWizardPrev.classList.add('hidden');
         btnWizardNext.classList.add('hidden');
         btnExecute.classList.remove('hidden');
+        if (wizardFooterDivider) {
+            wizardFooterDivider.classList.add('hidden');
+        }
         return;
     }
     const uiCount = wizardUiStepCount();
@@ -1294,7 +1297,10 @@ function positionCustomSelectMenu(wrapper) {
 function parseLookupName(type) {
     if (!type) return null;
     const match = String(type).match(/^(?:LOOKUP_MULTI|MULTILOOKUP|LOOKUP)\(([^)]+)\)/i);
-    return match ? match[1].trim() : null;
+    if (!match) return null;
+    const inner = match[1].trim();
+    const comma = inner.indexOf(',');
+    return (comma >= 0 ? inner.slice(0, comma) : inner).trim() || null;
 }
 
 function isLookupMultiType(type) {

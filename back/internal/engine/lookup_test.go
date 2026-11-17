@@ -2,8 +2,10 @@ package engine
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"sqlformys/internal/domain"
 )
 
@@ -74,7 +76,21 @@ func TestApplyLookupDependenciesCascadeAndSelfReference(t *testing.T) {
 func TestLookupNameFromFieldType(t *testing.T) {
 	assert.Equal(t, "TipoArquivo", LookupNameFromFieldType("LOOKUP(TipoArquivo)"))
 	assert.Equal(t, "UFsAtendimento", LookupNameFromFieldType("LOOKUP_MULTI(UFsAtendimento)"))
+	assert.Equal(t, "NomeDoLookUp", LookupNameFromFieldType("LOOKUP(NomeDoLookUp, 30s)"))
 	assert.Equal(t, "", LookupNameFromFieldType("VARCHAR"))
+}
+
+func TestResolveLookupTTLPrecedence(t *testing.T) {
+	sql := "--<LOOKUP NomeDoLookUp 2m>\nSELECT 1\n--</LOOKUP>\n" +
+		"--<PROPERTIES>\n" +
+		"--SELECT @?CD_USUARIO:LOOKUP(NomeDoLookUp, 30s):VARCHAR:10:=:User\n" +
+		"--SELECT @?CD_OUTRO:LOOKUP(NomeDoLookUp):VARCHAR:10:=:Other\n" +
+		"--</PROPERTIES>"
+	parser, err := ParseMetadata(sql)
+	require.NoError(t, err)
+	assert.Equal(t, 30*time.Second, ResolveLookupTTL(parser, "NomeDoLookUp", "CD_USUARIO"))
+	assert.Equal(t, 2*time.Minute, ResolveLookupTTL(parser, "NomeDoLookUp", "CD_OUTRO"))
+	assert.Equal(t, 2*time.Minute, ResolveLookupTTL(parser, "NomeDoLookUp", ""))
 }
 
 func TestMapLookupOptions(t *testing.T) {

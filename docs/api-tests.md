@@ -111,9 +111,18 @@ curl -X POST "http://localhost:8080/api/queries/IMS%20Arquivos/Consulta%20de%20A
 ## 4. Executar um LOOKUP (dropdown dinâmico)
 Este endpoint executa a query nomeada `--<LOOKUP NomeDoLookUp>` definida no mesmo arquivo `.sql` do módulo, injetando as variáveis atuais do formulário.
 
+Opcionalmente o módulo pode definir cache de lookup:
+
+- no bloco: `--<LOOKUP NomeDoLookUp 2m>` ou `CACHE=2m`
+- no campo: `LOOKUP(NomeDoLookUp, 30s)` (prioridade sobre o bloco)
+
+A API reutiliza resultados em memória enquanto o TTL estiver válido (mesmo módulo, campo, payload e destino de banco).
+
+Nos logs da API, procure por `CACHE lookup status=HIT|MISS|BYPASS`. A resposta HTTP inclui o header `X-Cache` com o mesmo valor (`HIT` = servido do cache; `MISS` = executou SQL e armazenou; `BYPASS` = sem TTL configurado).
+
 **Requisição:**
 ```bash
-curl -X POST "http://localhost:8080/api/lookups/IMS%20Arquivos/Consulta%20de%20Arquivo?name=NomeDoLookUp" \
+curl -X POST "http://localhost:8080/api/lookups/IMS%20Arquivos/Consulta%20de%20Arquivo?name=NomeDoLookUp&field=CD_USUARIO" \
      -H "Content-Type: application/json" \
      -d '{
            "CD_EMPRESA": 2

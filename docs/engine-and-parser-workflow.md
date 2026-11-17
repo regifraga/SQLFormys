@@ -20,6 +20,7 @@ Observe que tem valores como:
 O que estes fazem:
 
 - `--SERVER`: informa o host do SQL Server (desta forma o motor poderá se conectar diretamente à instância do SQL Server e executar os scripts) (não é obrigatório, se não tiver o motor vai usar o padrão definido na configuração global)
+- `--CACHE=15s` (ou `1m`, `2h`): TTL de cache da execução do módulo na API (não se aplica a LOOKUP). Blocos `--<LOOKUP Name 2m>` e tipo `LOOKUP(Name, 30s)` controlam cache de dropdown separadamente, com prioridade do inline sobre o bloco.
 - `--<PROPERTIES>`: que vai iniciar uma `área` contendo campos que serão os metadados para renderizar os controles na tela
 - `--</PROPERTIES>`: fim da área com as definições dos campos dinâmicos
 -  `--SELECT`: comando do próprio SQL Server para atribuir valor a uma variável detalhes do campo a ser renderizado, separados por `:` seguindo o padrão que será explicado a seguir

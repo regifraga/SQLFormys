@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"sqlformys/internal/domain"
 	"sqlformys/internal/modulekind"
@@ -21,8 +22,10 @@ type SQLParser struct {
 	ConfirmType    string
 	ConfirmMessage string
 	Timeout     int
+	CacheTTL    time.Duration // module-level --CACHE
 	Fields      []domain.Field
 	Lookups       map[string]string
+	LookupCacheTTL map[string]time.Duration
 	NamedQueries  map[string]string
 	ModuleQueryRef      string // from --QUERY(Name)
 	ResultTypeQueryRef  string // from --RESULT_TYPE=GRID QUERY(Name)
@@ -132,7 +135,7 @@ func propertiesBlockRegex(prefix string) *regexp.Regexp {
 
 func lookupBlockRegexFor(prefix string) *regexp.Regexp {
 	p := regexp.QuoteMeta(prefix)
-	return regexp.MustCompile(`(?si)` + p + `\s*<LOOKUP\s+([A-Za-z][A-Za-z0-9_]*)\s*>\s*(.*?)\s*` + p + `\s*</LOOKUP>`)
+	return regexp.MustCompile(`(?si)` + p + `\s*<LOOKUP\s+([A-Za-z][A-Za-z0-9_]*)(?:\s+(?:(?i)CACHE=)?(\d+[smh]))?\s*>\s*(.*?)\s*` + p + `\s*</LOOKUP>`)
 }
 
 type metadataDialect struct {
@@ -148,6 +151,7 @@ type metadataDialect struct {
 	descriptionRegex  *regexp.Regexp
 	executeModeRegex  *regexp.Regexp
 	resultTypeRegex   *regexp.Regexp
+	cacheRegex        *regexp.Regexp
 }
 
 func dialectForKind(kind string) metadataDialect {
@@ -178,6 +182,7 @@ func dialectForKind(kind string) metadataDialect {
 		descriptionRegex: tagRegex(prefix, "DESCRIPTION"),
 		executeModeRegex: tagRegex(prefix, "EXECUTE_MODE"),
 		resultTypeRegex:  tagRegex(prefix, "RESULT_TYPE"),
+		cacheRegex:       tagRegex(prefix, "CACHE"),
 	}
 }
 
@@ -324,8 +329,17 @@ func ParseMetadataForKind(content, kind string) (*SQLParser, error) {
 		OriginalSQL: content,
 		ResultType:  d.defaultResult,
 		Fields:      make([]domain.Field, 0),
-		Lookups:       make(map[string]string),
-		NamedQueries:  make(map[string]string),
+		Lookups:        make(map[string]string),
+		LookupCacheTTL: make(map[string]time.Duration),
+		NamedQueries:   make(map[string]string),
+	}
+
+	if cacheMatch := d.cacheRegex.FindStringSubmatch(content); len(cacheMatch) > 1 {
+		ttl, err := ParseCacheArg(strings.TrimSpace(cacheMatch[1]))
+		if err != nil {
+			return nil, fmt.Errorf("CACHE: %w", err)
+		}
+		parser.CacheTTL = ttl
 	}
 
 	if d.allowLookups {
@@ -334,7 +348,14 @@ func ParseMetadataForKind(content, kind string) (*SQLParser, error) {
 				continue
 			}
 			lookupName := strings.TrimSpace(match[1])
-			parser.Lookups[lookupName] = strings.TrimSpace(match[2])
+			parser.Lookups[lookupName] = strings.TrimSpace(match[3])
+			if len(match) > 3 && strings.TrimSpace(match[2]) != "" {
+				ttl, err := ParseCacheDuration(strings.TrimSpace(match[2]))
+				if err != nil {
+					return nil, fmt.Errorf("LOOKUP %s: %w", lookupName, err)
+				}
+				parser.LookupCacheTTL[lookupName] = ttl
+			}
 		}
 	} else if len(d.lookupBlockRegex.FindAllStringSubmatch(content, -1)) > 0 {
 		return nil, fmt.Errorf("blocos LOOKUP não são suportados em módulos %s", d.kind)
@@ -497,6 +518,9 @@ func ParseMetadataForKind(content, kind string) (*SQLParser, error) {
 		}
 		if !d.allowLookups && fieldUsesLookup(typePart) {
 			return nil, fmt.Errorf("tipo LOOKUP não suportado em módulos %s (campo %s)", d.kind, fieldName)
+		}
+		if err := ApplyLookupFieldMetadata(&field); err != nil {
+			return nil, err
 		}
 		parser.Fields = append(parser.Fields, field)
 	}

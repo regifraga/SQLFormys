@@ -192,6 +192,7 @@ Place these at the top of the file (outside the properties block):
 | `--CONFIRM=DANGER: …` | Destructive confirmation modal; primary action is **Executar mesmo assim**. |
 | `--RESULT_TYPE=...` | How query results are rendered in the UI (see values below). Defaults to **GRID** if missing or invalid. |
 | `--TIMEOUT=10` | Query timeout in seconds. Defaults to **60** if missing or invalid. |
+| `--CACHE=15s` | Cache **module execution** (`POST /api/queries/...`, wizard steps, named `QUERY`) for the given duration. Suffix `s` (seconds), `m` (minutes), or `h` (hours); max **24h**. Does **not** apply to LOOKUP dropdowns. Shell/PowerShell: `#CACHE=15s`. |
 | `--INCLUDE=...` | Inlines another module from a **Library** folder (same `kind` as the host: `.sql`, `.sh`, or `.ps1`). You may use several lines. Path is logical (no extension), relative to `back/queries`. |
 | `--<PROPERTIES>` / `--</PROPERTIES>` | Block that defines the form fields. |
 
@@ -414,20 +415,23 @@ There is no dedicated `TEXTAREA`, `TIME`, or `BOOLEAN` type. Anything that is no
 Use `LOOKUP` when the options should come from the database instead of a static list. Define a named query in the same `.sql` file (outside `--<PROPERTIES>`):
 
 ```sql
---<LOOKUP NomeDoLookUp>
+--<LOOKUP NomeDoLookUp 2m>
 SELECT CdUsuario AS Code, NmUsuario AS Value
 FROM COR_USUARIO
 WHERE CdEmpresa = @CD_EMPRESA
 --</LOOKUP>
 ```
 
-Then point a field at that name:
+Optional cache on the block: append `2m` or `CACHE=2m` on the opening tag (same `s`/`m`/`h` format as `--CACHE`). Without it, the lookup is not cached at block level.
+
+Then point a field at that name. You can override cache **per field** (wins over the block):
 
 ```sql
--- SELECT @?CD_USUARIO:LOOKUP(NomeDoLookUp):VARCHAR:10:=:User::Pick a user
+-- SELECT @?CD_USUARIO:LOOKUP(NomeDoLookUp, 30s):VARCHAR:10:=:User::Pick a user
+-- SELECT @?CD_USUARIO:LOOKUP(NomeDoLookUp, CACHE=30s):VARCHAR:10:=:User::Pick a user
 ```
 
-Opening the dropdown in the UI runs `POST /api/lookups/{module}?name=NomeDoLookUp` with the current form values. The lookup SQL receives the same variables as the main query (`SELECT @CD_EMPRESA=...` on SQL Server, `current_setting('vars.CD_EMPRESA')` on PostgreSQL) and also supports `/*[VAR=VAL]*/.../*[/VAR]*/` fragments. After options load, the dropdown includes a **search box** that filters the list locally by code or label.
+Opening the dropdown in the UI runs `POST /api/lookups/{module}?name=NomeDoLookUp&field=CD_USUARIO` with the current form values. The API caches lookup results in memory when a TTL is set (inline on the field, else on the block). Cache keys include form values and connection target. The lookup SQL receives the same variables as the main query (`SELECT @CD_EMPRESA=...` on SQL Server, `current_setting('vars.CD_EMPRESA')` on PostgreSQL) and also supports `/*[VAR=VAL]*/.../*[/VAR]*/` fragments. After options load, the dropdown includes a **search box** that filters the list locally by code or label.
 
 The lookup result should expose **Code** (option value) and **Value** (option label). If those aliases are missing, the first two columns are used. Lookup blocks are stripped before the main module query runs.
 
