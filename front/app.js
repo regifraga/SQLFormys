@@ -757,6 +757,25 @@ function goToWizardStep(targetIndex) {
     }
 }
 
+async function openModuleSqlEditorOnLoadFailure(queryPath, moduleKind = 'sql') {
+    if (!queryPath || typeof adminCanEditSql !== 'function' || !adminCanEditSql()) {
+        return false;
+    }
+    if (typeof window.openSqlEditor !== 'function') {
+        return false;
+    }
+    const kind = normalizeModuleKind(moduleKind);
+    currentQueryPath = queryPath;
+    currentQueryKind = kind;
+    window.sqlformysActiveQueryPath = queryPath;
+    window.sqlformysActiveQueryKind = kind;
+    currentFields = [];
+    currentQueryLookups = {};
+    currentWizard = null;
+    await window.openSqlEditor(API_BASE_URL, queryPath, undefined, kind);
+    return true;
+}
+
 async function loadFormFields(queryPath, moduleTitle, moduleKind = 'sql') {
     if (isFormExecutionBusy()) {
         const canLeave = await confirmAbortFormExecutionAndLeave();
@@ -815,7 +834,16 @@ async function loadFormFields(queryPath, moduleTitle, moduleKind = 'sql') {
 
     } catch (error) {
         console.error(error);
-        showToast('Erro', 'Falha ao carregar os campos do módulo selecionado.', 'error');
+        const openedEditor = await openModuleSqlEditorOnLoadFailure(queryPath, moduleKind);
+        if (openedEditor) {
+            showToast(
+                'Módulo com erro',
+                'Não foi possível carregar o formulário deste módulo. O editor foi aberto para correção; a execução permanece indisponível até o arquivo ser corrigido.',
+                'warning'
+            );
+        } else {
+            showToast('Erro', 'Falha ao carregar os campos do módulo selecionado.', 'error');
+        }
     }
 }
 
