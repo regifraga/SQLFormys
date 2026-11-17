@@ -459,6 +459,7 @@ function showToast(title, message, type = 'success', options = null) {
 }
 
 window.showToast = showToast;
+window.copyTextToClipboard = copyTextToClipboard;
 window.refreshNotificationsStorage = function refreshNotificationsStorage() {
     loadNotificationsFromStorage();
     loadErrorsOnlyPreference();

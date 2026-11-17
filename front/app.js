@@ -62,6 +62,7 @@ let formExecutionCount = 0;
 let activeFormExecutionAbort = null;
 let formExecutionIdleResolvers = [];
 let formExecuteButtonLabel = '';
+let currentExecutionDurationMs = null;
 
 function isFormExecutionBusy() {
     return formExecutionCount > 0;
@@ -219,6 +220,13 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (typeof applySavedSidebarWidth === 'function') {
             applySavedSidebarWidth();
         }
+    }
+
+    if (typeof initResultPins === 'function') {
+        initResultPins();
+    }
+    if (typeof refreshResultPinsFromStorage === 'function') {
+        refreshResultPinsFromStorage();
     }
 
     initSidebarFolderControls();
@@ -794,6 +802,12 @@ async function loadFormFields(queryPath, moduleTitle, moduleKind = 'sql') {
         emptyState.classList.add('hidden');
         gridContainer.classList.add('hidden');
         formContainer.classList.remove('hidden');
+        if (typeof syncResultPinButton === 'function') {
+            syncResultPinButton(null);
+        }
+        if (typeof syncFormPinsDock === 'function') {
+            syncFormPinsDock();
+        }
 
         if (executeMode.toUpperCase() === 'AUTO' && !isWizardModule()) {
             handleExecute();
@@ -821,6 +835,10 @@ async function executeQuery(payload, options = {}) {
     const requestSignal = activeFormExecutionAbort ? activeFormExecutionAbort.signal : undefined;
 
     currentQueryResult = null;
+    currentExecutionDurationMs = null;
+    if (typeof syncResultPinButton === 'function') {
+        syncResultPinButton(null);
+    }
 
     // Limpar tempo de execução anterior
     const executionTimeEl = document.getElementById('execution-time');
@@ -858,7 +876,8 @@ async function executeQuery(payload, options = {}) {
         const result = await response.json();
         const endTime = performance.now();
         const duration = endTime - startTime;
-        
+        currentExecutionDurationMs = duration;
+
         // Tentar formatar a resposta se for JSON para a notificação
         let msg = result.message || 'Operação realizada com sucesso.';
         showToast('Sucesso', msg, 'success', { context: currentQueryPath || undefined });
@@ -2224,6 +2243,10 @@ function renderForm(queryPath, moduleTitle, fields, description = '', executeMod
         }
     }
 
+    if (typeof syncFormPinsDock === 'function') {
+        syncFormPinsDock();
+    }
+
     syncFormModuleEditButton(queryPath);
     if (typeof window.updateFormModuleEditAction === 'function') {
         window.updateFormModuleEditAction(queryPath, API_BASE_URL);
@@ -2517,6 +2540,13 @@ async function handleCancel() {
     currentResultType = 'GRID';
     resetWizardState();
     resetResultDocumentView();
+    currentExecutionDurationMs = null;
+    if (typeof syncResultPinButton === 'function') {
+        syncResultPinButton(null);
+    }
+    if (typeof syncFormPinsDock === 'function') {
+        syncFormPinsDock();
+    }
     if (gridActions) {
         gridActions.classList.add('hidden');
     }
@@ -3063,6 +3093,7 @@ function renderQueryResult(resultData, duration = null) {
 
     if (resultType === 'GRID') {
         renderGrid(resultData, duration);
+        pushActiveResultPinSync(duration);
         return;
     }
 
@@ -3105,6 +3136,19 @@ function renderQueryResult(resultData, duration = null) {
             showToast('Erro', 'Falha ao renderizar o resultado.', 'error');
         });
     }
+
+    pushActiveResultPinSync(duration);
+}
+
+function pushActiveResultPinSync(duration = currentExecutionDurationMs) {
+    if (typeof syncResultPinButton !== 'function') return;
+    syncResultPinButton({
+        queryPath: currentQueryPath,
+        moduleTitle: formTitle ? formTitle.innerText : '',
+        resultData: currentQueryResult,
+        resultType: resolveResultType(currentQueryResult, currentResultType),
+        durationMs: duration
+    });
 }
 
 function renderGrid(resultData, duration = null) {
