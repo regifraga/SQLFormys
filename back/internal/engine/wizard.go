@@ -34,6 +34,7 @@ func wizardBlockRegexFor(prefix string) *regexp.Regexp {
 var wizardStepLineRegex = regexp.MustCompile(`(?i)^STEP\s+([A-Za-z][A-Za-z0-9_]*)\s*:\s*(.+)$`)
 var wizardSummaryLineRegex = regexp.MustCompile(`(?i)^SUMMARY\s*(.*)$`)
 var wizardSummaryNamedQueryRegex = regexp.MustCompile(`(?i)^QUERY\s*\(\s*([A-Za-z][A-Za-z0-9_]*)\s*\)\s*(.*)$`)
+var wizardSummaryValidateRegex = regexp.MustCompile(`(?i)VALIDATE\s*\(\s*([A-Za-z][A-Za-z0-9_]*)\s*\)`)
 var wizardFieldNameTokenRegex = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 var wizardSummaryFieldsWithLabelRegex = regexp.MustCompile(`(?i)^([A-Za-z_][A-Za-z0-9_]*(?:\s*,\s*[A-Za-z_][A-Za-z0-9_]*)+)\s*:\s*(.+)$`)
 
@@ -70,11 +71,25 @@ func isWizardSummaryFieldList(raw string) bool {
 	return err == nil
 }
 
-func parseSummaryDirectiveArgs(args string) (label string, fields []string, queryName string, err error) {
+func extractSummaryValidateName(args string) (rest string, validateName string) {
+	rest = strings.TrimSpace(args)
+	m := wizardSummaryValidateRegex.FindStringSubmatch(rest)
+	if len(m) < 2 {
+		return rest, ""
+	}
+	validateName = strings.TrimSpace(m[1])
+	rest = strings.TrimSpace(wizardSummaryValidateRegex.ReplaceAllString(rest, ""))
+	return rest, validateName
+}
+
+func parseSummaryDirectiveArgs(args string) (label string, fields []string, queryName string, validateName string, err error) {
 	label = defaultWizardSummaryLabel
 	args = strings.TrimSpace(args)
+	var validate string
+	args, validate = extractSummaryValidateName(args)
+	validateName = validate
 	if args == "" {
-		return label, nil, "", nil
+		return label, nil, "", validateName, nil
 	}
 	if m := wizardSummaryNamedQueryRegex.FindStringSubmatch(args); len(m) >= 2 {
 		queryName = strings.TrimSpace(m[1])
@@ -82,34 +97,34 @@ func parseSummaryDirectiveArgs(args string) (label string, fields []string, quer
 		if strings.HasPrefix(rest, ":") {
 			label = strings.TrimSpace(strings.TrimPrefix(rest, ":"))
 			if label == "" {
-				return "", nil, "", fmt.Errorf("diretiva SUMMARY com rótulo vazio")
+				return "", nil, "", validateName, fmt.Errorf("diretiva SUMMARY com rótulo vazio")
 			}
 		} else if rest != "" {
-			return "", nil, "", fmt.Errorf("diretiva SUMMARY QUERY inválida")
+			return "", nil, "", validateName, fmt.Errorf("diretiva SUMMARY QUERY inválida")
 		}
-		return label, nil, queryName, nil
+		return label, nil, queryName, validateName, nil
 	}
 	if strings.HasPrefix(args, ":") {
 		text := strings.TrimSpace(strings.TrimPrefix(args, ":"))
 		if text == "" {
-			return "", nil, "", fmt.Errorf("diretiva SUMMARY com rótulo vazio")
+			return "", nil, "", validateName, fmt.Errorf("diretiva SUMMARY com rótulo vazio")
 		}
 		if isWizardSummaryFieldList(text) {
 			fields, err = splitWizardSummaryFieldList(text)
-			return label, fields, "", err
+			return label, fields, "", validateName, err
 		}
-		return text, nil, "", nil
+		return text, nil, "", validateName, nil
 	}
 	if m := wizardSummaryFieldsWithLabelRegex.FindStringSubmatch(args); len(m) >= 3 {
 		fields, err = splitWizardSummaryFieldList(m[1])
 		if err != nil {
-			return "", nil, "", err
+			return "", nil, "", validateName, err
 		}
-		return strings.TrimSpace(m[2]), fields, "", nil
+		return strings.TrimSpace(m[2]), fields, "", validateName, nil
 	}
 	if isWizardSummaryFieldList(args) {
 		fields, err = splitWizardSummaryFieldList(args)
-		return label, fields, "", err
+		return label, fields, "", validateName, err
 	}
 	if strings.Contains(args, ":") {
 		left, right, ok := strings.Cut(args, ":")
@@ -119,31 +134,32 @@ func parseSummaryDirectiveArgs(args string) (label string, fields []string, quer
 			if left != "" && isWizardSummaryFieldList(left) {
 				fields, err = splitWizardSummaryFieldList(left)
 				if err != nil {
-					return "", nil, "", err
+					return "", nil, "", validateName, err
 				}
 				if right == "" {
-					return "", nil, "", fmt.Errorf("diretiva SUMMARY com rótulo vazio")
+					return "", nil, "", validateName, fmt.Errorf("diretiva SUMMARY com rótulo vazio")
 				}
-				return right, fields, "", nil
+				return right, fields, "", validateName, nil
 			}
 		}
 	}
 	if strings.HasPrefix(strings.ToUpper(args), "SUMMARY") {
-		return "", nil, "", fmt.Errorf("diretiva SUMMARY inválida")
+		return "", nil, "", validateName, fmt.Errorf("diretiva SUMMARY inválida")
 	}
-	return args, nil, "", nil
+	return args, nil, "", validateName, nil
 }
 
-func parseWizardSummary(content, linePrefix string) (enabled bool, label string, fields []string, queryName string, err error) {
+func parseWizardSummary(content, linePrefix string) (enabled bool, label string, fields []string, queryName string, validateQueryName string, err error) {
 	re := wizardBlockRegexFor(linePrefix)
 	match := re.FindStringSubmatch(content)
 	if len(match) < 2 {
-		return false, "", nil, "", nil
+		return false, "", nil, "", "", nil
 	}
 	var found bool
 	var summaryLabel string
 	var summaryFields []string
 	var summaryQuery string
+	var summaryValidate string
 	for _, line := range strings.Split(match[1], "\n") {
 		line = strings.TrimSpace(line)
 		if !isLineComment(line, linePrefix) {
@@ -155,22 +171,22 @@ func parseWizardSummary(content, linePrefix string) (enabled bool, label string,
 			continue
 		}
 		if found {
-			return false, "", nil, "", fmt.Errorf("diretiva SUMMARY duplicada no bloco WIZARD")
+			return false, "", nil, "", "", fmt.Errorf("diretiva SUMMARY duplicada no bloco WIZARD")
 		}
 		found = true
 		argPart := ""
 		if len(sub) >= 2 {
 			argPart = sub[1]
 		}
-		summaryLabel, summaryFields, summaryQuery, err = parseSummaryDirectiveArgs(argPart)
+		summaryLabel, summaryFields, summaryQuery, summaryValidate, err = parseSummaryDirectiveArgs(argPart)
 		if err != nil {
-			return false, "", nil, "", err
+			return false, "", nil, "", "", err
 		}
 	}
 	if !found {
-		return false, "", nil, "", nil
+		return false, "", nil, "", "", nil
 	}
-	return true, summaryLabel, summaryFields, summaryQuery, nil
+	return true, summaryLabel, summaryFields, summaryQuery, summaryValidate, nil
 }
 
 func validateWizardSummaryFields(fieldNames []string, wizardFields []domain.Field) error {
@@ -544,9 +560,10 @@ func (p *SQLParser) WizardMetadata() *domain.WizardMetadata {
 	}
 	if p.WizardSummary {
 		meta.Summary = &domain.WizardSummaryMeta{
-			Label:      p.WizardSummaryLabel,
-			FieldNames: append([]string(nil), p.WizardSummaryFields...),
-			QueryName:  p.WizardSummaryQuery,
+			Label:             p.WizardSummaryLabel,
+			FieldNames:        append([]string(nil), p.WizardSummaryFields...),
+			QueryName:         p.WizardSummaryQuery,
+			ValidateQueryName: p.WizardSummaryValidateQuery,
 		}
 		if meta.Summary.Label == "" {
 			meta.Summary.Label = defaultWizardSummaryLabel
@@ -588,7 +605,8 @@ func residualSQLBeforeDeclareStrip(content string, d metadataDialect) string {
 	for _, tag := range []string{"SERVER", "TIMEOUT", "DESCRIPTION", "EXECUTE_MODE", "RESULT_TYPE", "INCLUDE", "CACHE"} {
 		out = tagRegex(d.linePrefix, tag).ReplaceAllString(out, "")
 	}
-	return StripConfirmDirectives(out, d.linePrefix)
+	out = StripConfirmDirectives(out, d.linePrefix)
+	return StripMessageDirectives(out, d.linePrefix)
 }
 
 func extractResidualSQL(content string, d metadataDialect) string {

@@ -66,6 +66,9 @@ let formExecutionIdleResolvers = [];
 let formExecuteButtonLabel = '';
 let currentExecutionDurationMs = null;
 let currentConfirm = null;
+let currentModuleMessages = [];
+let wizardSummaryCanExecute = null;
+let wizardSummaryGateMessage = '';
 
 function isFormExecutionBusy() {
     return formExecutionCount > 0;
@@ -109,7 +112,10 @@ function syncFormExecutionLockState() {
         formEl.setAttribute('aria-busy', busy ? 'true' : 'false');
     }
     if (btnExecute) {
-        btnExecute.disabled = busy;
+        const summaryBlocked = isOnWizardSummaryStep()
+            && hasWizardSummaryStep()
+            && wizardSummaryCanExecute === false;
+        btnExecute.disabled = busy || summaryBlocked;
         if (busy && !btnExecute.classList.contains('hidden')) {
             btnExecute.innerText = 'Executando...';
             btnExecute.setAttribute('aria-disabled', 'true');
@@ -575,6 +581,8 @@ function getCurrentWizardStepMeta() {
 }
 
 function resetWizardState() {
+    wizardSummaryCanExecute = null;
+    wizardSummaryGateMessage = '';
     currentWizard = null;
     wizardStepIndex = 0;
     wizardStepResults = {};
@@ -813,7 +821,7 @@ async function handleWizardNext() {
     if (!validateWizardStepAt(wizardStepIndex)) return;
 
     const step = getCurrentWizardStepMeta();
-    if (!step) return;
+    if (!step || step.id === WIZARD_SUMMARY_STEP_ID) return;
 
     wizardNavBusy = true;
     if (btnWizardNext) btnWizardNext.disabled = true;
@@ -821,14 +829,24 @@ async function handleWizardNext() {
     try {
         if (step.hasQuery) {
             await runWizardStepQuery(step);
+            if (currentQueryResult?.messages?.length) {
+                await drainRuntimeMessages(currentQueryResult);
+            }
         }
+        const mayLeave = await drainStaticMessages('exit', step.id, { allowCancel: true });
+        if (!mayLeave) return;
         if (wizardStepIndex < wizardUiStepCount() - 1) {
             wizardStepIndex += 1;
             updateWizardStepVisibility();
+            const next = getCurrentWizardStepMeta();
+            if (next && next.id !== WIZARD_SUMMARY_STEP_ID) {
+                await drainStaticMessages('enter', next.id);
+            }
         }
     } finally {
         wizardNavBusy = false;
         if (btnWizardNext) btnWizardNext.disabled = false;
+        syncFormExecutionLockState();
     }
 }
 
@@ -847,6 +865,7 @@ function goToWizardStep(targetIndex) {
     const step = getCurrentWizardStepMeta();
     if (step && step.id !== WIZARD_SUMMARY_STEP_ID) {
         restoreWizardStepResult(step.id);
+        void drainStaticMessages('enter', step.id);
     }
 }
 
@@ -904,6 +923,9 @@ async function loadFormFields(queryPath, moduleTitle, moduleKind = 'sql') {
         currentQueryLookups = data.lookups || {};
         currentWizard = data.wizard || null;
         currentConfirm = data.confirm || null;
+        currentModuleMessages = Array.isArray(data.messages) ? data.messages : [];
+        wizardSummaryCanExecute = null;
+        wizardSummaryGateMessage = '';
         wizardStepIndex = 0;
         wizardStepResults = {};
         wizardStepRuntimeValues = {};
@@ -922,6 +944,8 @@ async function loadFormFields(queryPath, moduleTitle, moduleKind = 'sql') {
         if (typeof syncFormPinsDock === 'function') {
             syncFormPinsDock();
         }
+
+        void afterModuleFormReady();
 
         if (executeMode.toUpperCase() === 'AUTO' && !isWizardModule() && !currentConfirm) {
             handleExecute();
@@ -1535,6 +1559,9 @@ async function renderWizardSummary() {
     const pane = getWizardPaneForStep(WIZARD_SUMMARY_STEP_ID);
     if (!pane || !isWizardModule()) return;
     pane.innerHTML = '';
+    wizardSummaryCanExecute = null;
+    wizardSummaryGateMessage = '';
+
     const wrap = document.createElement('div');
     wrap.className = 'wizard-review';
     const intro = document.createElement('p');
@@ -1543,7 +1570,21 @@ async function renderWizardSummary() {
     wrap.appendChild(intro);
 
     const summaryQueryName = String(currentWizard.summary?.queryName || '').trim();
-    if (summaryQueryName) {
+    const validateQueryName = String(currentWizard.summary?.validateQueryName || '').trim();
+    const gateBannerHost = document.createElement('div');
+    gateBannerHost.className = 'wizard-summary-gate-host';
+    wrap.appendChild(gateBannerHost);
+
+    const showGateBanner = () => {
+        if (wizardSummaryCanExecute !== false || !wizardSummaryGateMessage) return;
+        const banner = document.createElement('div');
+        banner.className = 'wizard-summary-gate-banner';
+        banner.setAttribute('role', 'status');
+        banner.textContent = wizardSummaryGateMessage;
+        gateBannerHost.appendChild(banner);
+    };
+
+    if (summaryQueryName || validateQueryName) {
         const section = document.createElement('section');
         section.className = 'wizard-review-section';
         const loading = document.createElement('p');
@@ -1551,15 +1592,34 @@ async function renderWizardSummary() {
         loading.textContent = 'Carregando…';
         section.appendChild(loading);
         wrap.appendChild(section);
-        pane.appendChild(wrap);
         try {
-            const data = await fetchNamedQueryPreview(summaryQueryName);
+            const [previewData, validateData] = await Promise.all([
+                summaryQueryName ? fetchNamedQueryPreview(summaryQueryName) : Promise.resolve(null),
+                validateQueryName ? fetchNamedQueryPreview(validateQueryName) : Promise.resolve(null),
+            ]);
             loading.remove();
-            appendWizardSummaryQueryGrid(section, data);
+            if (previewData && summaryQueryName) {
+                appendWizardSummaryQueryGrid(section, previewData);
+            } else {
+                section.remove();
+            }
+            applyWizardSummaryExecuteGate(previewData, validateData);
+            showGateBanner();
         } catch (err) {
-            loading.textContent = err?.message || 'Não foi possível carregar a consulta de resumo.';
+            if (section.isConnected) {
+                loading.textContent = err?.message || 'Não foi possível carregar a consulta de resumo.';
+            }
+            if (validateQueryName) {
+                wizardSummaryCanExecute = false;
+                wizardSummaryGateMessage = err?.message || 'Falha na validação.';
+                syncFormExecutionLockState();
+                showGateBanner();
+            }
         }
-        return;
+        if (summaryQueryName) {
+            pane.appendChild(wrap);
+            return;
+        }
     }
 
     const summarySubset = Array.isArray(currentWizard.summary?.fieldNames)
@@ -1596,6 +1656,12 @@ async function renderWizardSummary() {
         });
     }
     pane.appendChild(wrap);
+    if (!validateQueryName && !summaryQueryName) {
+        wizardSummaryCanExecute = null;
+        syncFormExecutionLockState();
+    } else if (validateQueryName && wizardSummaryCanExecute === null) {
+        showGateBanner();
+    }
 }
 
 function refreshInterpolatedTexts() {
@@ -2882,6 +2948,7 @@ async function handleCancel() {
     window.sqlformysActiveQueryPath = '';
     currentFields = [];
     currentQueryLookups = {};
+    currentModuleMessages = [];
     currentQueryResult = null;
     currentResultType = 'GRID';
     resetWizardState();
@@ -2940,6 +3007,126 @@ function handleClear() {
 
     snapshotFormControlValues();
     refreshInterpolatedTexts();
+}
+
+function userMessageModalCopy(meta) {
+    const type = String((meta && meta.type) || 'WARNING').toUpperCase();
+    const custom = meta && meta.message ? String(meta.message).trim() : '';
+    const body = custom
+        ? interpolateTemplate(custom, collectFormValues(true), getKnownFormFieldNames())
+        : '';
+    const titles = { CONFIRM: 'Confirmar', WARNING: 'Atenção', DANGER: 'Cuidado' };
+    const tones = { CONFIRM: 'confirm', WARNING: 'warning', DANGER: 'danger' };
+    return {
+        title: titles[type] || titles.WARNING,
+        body: body || ' ',
+        tone: tones[type] || tones.WARNING,
+    };
+}
+
+function filterStaticMessages(when, stepId) {
+    return (currentModuleMessages || []).filter((m) => {
+        if (String(m.when || '').toLowerCase() !== String(when).toLowerCase()) return false;
+        if (when === 'enter' || when === 'exit') {
+            return String(m.stepId || '') === String(stepId || '');
+        }
+        return true;
+    });
+}
+
+function promptUserMessage(meta, options = {}) {
+    const allowCancel = options.allowCancel === true;
+    if (typeof openAppModal !== 'function') {
+        return Promise.resolve(true);
+    }
+    const copy = userMessageModalCopy(meta);
+  const primaryLabel = options.primaryLabel || (allowCancel ? 'Continuar' : 'OK');
+    return new Promise((resolve) => {
+        let settled = false;
+        const finish = (value) => {
+            if (settled) return;
+            settled = true;
+            resolve(value);
+        };
+        openAppModal({
+            title: copy.title,
+            body: copy.body,
+            primaryLabel,
+            secondaryLabel: allowCancel ? 'Cancelar' : '',
+            hideSecondary: !allowCancel,
+            tone: copy.tone,
+            onPrimary: async () => {
+                finish(true);
+                return true;
+            },
+            onSecondary: async () => {
+                finish(false);
+            },
+        });
+    });
+}
+
+async function drainStaticMessages(when, stepId, options = {}) {
+    const list = filterStaticMessages(when, stepId);
+    for (const msg of list) {
+        const allowCancel = options.allowCancel === true || when === 'exit' || when === 'finish';
+        const ok = await promptUserMessage(msg, { allowCancel });
+        if (!ok) return false;
+    }
+    return true;
+}
+
+async function drainRuntimeMessages(result) {
+    const msgs = result?.messages || [];
+    for (const msg of msgs) {
+        await promptUserMessage(msg, { allowCancel: false });
+    }
+}
+
+async function afterModuleFormReady() {
+    await drainStaticMessages('load');
+    if (isWizardModule()) {
+        const step = getCurrentWizardStepMeta();
+        if (step && step.id !== WIZARD_SUMMARY_STEP_ID) {
+            await drainStaticMessages('enter', step.id);
+        }
+    }
+}
+
+function resolveSummaryCanExecuteFromResult(data, strictValidate) {
+    if (!data) {
+        return strictValidate ? false : null;
+    }
+    if (data.canExecute === true) return true;
+    if (data.canExecute === false) return false;
+    if (strictValidate) {
+        return false;
+    }
+    return null;
+}
+
+function applyWizardSummaryExecuteGate(previewData, validateData) {
+    const validateName = String(currentWizard?.summary?.validateQueryName || '').trim();
+    let allow = true;
+    let gateMsg = '';
+    if (validateName) {
+        const verdict = resolveSummaryCanExecuteFromResult(validateData, true);
+        if (verdict !== true) {
+            allow = false;
+            gateMsg = validateData?.messages?.[0]?.message
+                || 'Validação não permitiu a execução.';
+        }
+    } else if (String(currentWizard?.summary?.queryName || '').trim()) {
+        const verdict = resolveSummaryCanExecuteFromResult(previewData, false);
+        if (verdict === false) {
+            allow = false;
+            gateMsg = previewData?.messages?.[0]?.message || 'Execução não permitida pelos dados do resumo.';
+        }
+    }
+    wizardSummaryCanExecute = allow;
+    wizardSummaryGateMessage = allow ? '' : gateMsg;
+    syncFormExecutionLockState();
+    return allow;
 }
 
 function defaultExecuteConfirmMessage(type) {
@@ -3013,8 +3200,18 @@ function promptExecuteConfirmation() {
 
 async function handleExecute() {
     if (isFormExecutionBusy()) return;
+    const finishOk = await drainStaticMessages('finish', undefined, { allowCancel: true });
+    if (!finishOk) return;
     if (isWizardModule()) {
         if (!validateWizardStepAt(wizardStepIndex)) return;
+        if (isOnWizardSummaryStep() && wizardSummaryCanExecute === false) {
+            showToast(
+                'Execução bloqueada',
+                wizardSummaryGateMessage || 'A validação do resumo não permite executar.',
+                'warning'
+            );
+            return;
+        }
         const confirmed = await promptExecuteConfirmation();
         if (!confirmed) return;
         let step = getCurrentWizardStepMeta();
@@ -3023,13 +3220,20 @@ async function handleExecute() {
         }
         if (!step) return;
         const wizardFinal = isOnWizardSummaryStep() && hasWizardSummaryStep();
-        executeQuery(collectFormValues(false), {
-            stepId: step.id,
-            stepLabel: wizardStepDisplayLabel(step),
-            wizardFinal
-        }).then(() => {
+        try {
+            await executeQuery(collectFormValues(false), {
+                stepId: step.id,
+                stepLabel: wizardStepDisplayLabel(step),
+                wizardFinal,
+                suppressRuntimeMessages: true
+            });
             wizardStepResults[step.id] = { data: currentQueryResult, duration: null };
-        }).catch(() => {});
+            if (currentQueryResult?.messages?.length) {
+                await drainRuntimeMessages(currentQueryResult);
+            }
+        } catch (_err) {
+            // toast já exibido
+        }
         return;
     }
     if (!dynamicForm.checkValidity()) {
@@ -3039,7 +3243,14 @@ async function handleExecute() {
 
     const confirmed = await promptExecuteConfirmation();
     if (!confirmed) return;
-    executeQuery(collectFormValues(false));
+    try {
+        await executeQuery(collectFormValues(false), { suppressRuntimeMessages: true });
+        if (currentQueryResult?.messages?.length) {
+            await drainRuntimeMessages(currentQueryResult);
+        }
+    } catch (_err) {
+        // toast já exibido
+    }
 }
 
 /* ==========================================================================

@@ -34,7 +34,9 @@ type SQLParser struct {
 	WizardSummary        bool     // true when WIZARD block contains SUMMARY directive
 	WizardSummaryLabel   string
 	WizardSummaryFields  []string // empty = show all visible wizard fields
-	WizardSummaryQuery   string   // SUMMARY QUERY(Name)
+	WizardSummaryQuery         string // SUMMARY QUERY(Name)
+	WizardSummaryValidateQuery string // SUMMARY VALIDATE(Name)
+	Messages                   []domain.UserMessage
 }
 
 var (
@@ -450,6 +452,12 @@ func ParseMetadataForKind(content, kind string) (*SQLParser, error) {
 		parser.ConfirmMessage = msg
 	}
 
+	loadMsgs, msgErr := parseModuleMessageDirectives(content, d.linePrefix)
+	if msgErr != nil {
+		return nil, msgErr
+	}
+	parser.Messages = append(parser.Messages, loadMsgs...)
+
 	if resultTypeMatch := d.resultTypeRegex.FindStringSubmatch(content); len(resultTypeMatch) > 1 {
 		rtRaw, rtQuery := parseResultTypeAndQueryRef(resultTypeMatch[1])
 		parser.ResultType = NormalizeResultType(rtRaw)
@@ -481,7 +489,7 @@ func ParseMetadataForKind(content, kind string) (*SQLParser, error) {
 			}
 		}
 		if parser.WizardEnabled {
-			summaryOn, summaryLabel, summaryFields, summaryQuery, sumErr := parseWizardSummary(content, d.linePrefix)
+			summaryOn, summaryLabel, summaryFields, summaryQuery, summaryValidate, sumErr := parseWizardSummary(content, d.linePrefix)
 			if sumErr != nil {
 				return nil, sumErr
 			}
@@ -489,9 +497,15 @@ func ParseMetadataForKind(content, kind string) (*SQLParser, error) {
 			parser.WizardSummaryLabel = summaryLabel
 			parser.WizardSummaryFields = summaryFields
 			parser.WizardSummaryQuery = summaryQuery
+			parser.WizardSummaryValidateQuery = summaryValidate
 			if summaryOn && summaryQuery != "" {
 				if _, ok := parser.NamedQuerySQL(summaryQuery); !ok {
 					return nil, fmt.Errorf("SUMMARY referencia QUERY inexistente %q", summaryQuery)
+				}
+			}
+			if summaryOn && summaryValidate != "" {
+				if _, ok := parser.NamedQuerySQL(summaryValidate); !ok {
+					return nil, fmt.Errorf("SUMMARY referencia VALIDATE QUERY inexistente %q", summaryValidate)
 				}
 			}
 			if summaryOn && len(summaryFields) > 0 {
@@ -499,6 +513,15 @@ func ParseMetadataForKind(content, kind string) (*SQLParser, error) {
 					return nil, err
 				}
 			}
+			stepIDs := make(map[string]string, len(parser.Steps))
+			for _, st := range parser.Steps {
+				stepIDs[strings.ToUpper(st.ID)] = st.ID
+			}
+			wizardMsgs, wmErr := parseWizardMessages(content, d.linePrefix, stepIDs)
+			if wmErr != nil {
+				return nil, wmErr
+			}
+			parser.Messages = append(parser.Messages, wizardMsgs...)
 		}
 		return parser, nil
 	}

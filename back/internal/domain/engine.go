@@ -32,9 +32,18 @@ type WizardStepMeta struct {
 
 // WizardSummaryMeta enables an optional final review screen before execute.
 type WizardSummaryMeta struct {
-	Label      string   `json:"label"`
-	FieldNames []string `json:"fieldNames,omitempty"`
-	QueryName  string   `json:"queryName,omitempty"`
+	Label             string   `json:"label"`
+	FieldNames        []string `json:"fieldNames,omitempty"`
+	QueryName         string   `json:"queryName,omitempty"`
+	ValidateQueryName string   `json:"validateQueryName,omitempty"`
+}
+
+// UserMessage is a static or runtime message shown in the CONFIRM-style modal.
+type UserMessage struct {
+	When    string `json:"when"` // load, enter, exit, finish, runtime
+	StepID  string `json:"stepId,omitempty"`
+	Type    string `json:"type"`
+	Message string `json:"message"`
 }
 
 // WizardMetadata is returned when a module defines STEP/WIZARD blocks.
@@ -69,6 +78,7 @@ type MetadataResponse struct {
 	Timeout     int                       `json:"timeout"`
 	Cache       string                    `json:"cache,omitempty"` // module --CACHE (ex. 15s)
 	Confirm     *ConfirmMetadata          `json:"confirm,omitempty"`
+	Messages    []UserMessage             `json:"messages,omitempty"`
 	Fields      []Field                   `json:"fields"`
 	Lookups     map[string]LookupMetadata `json:"lookups,omitempty"`
 	Wizard      *WizardMetadata           `json:"wizard,omitempty"`
@@ -85,6 +95,8 @@ type QueryResult struct {
 	Columns    []string                 `json:"columns"`
 	Rows       []map[string]interface{} `json:"rows"`
 	ResultType string                   `json:"resultType,omitempty"`
+	Messages   []UserMessage            `json:"messages,omitempty"`
+	CanExecute *bool                    `json:"canExecute,omitempty"`
 }
 
 // LookupOption is a dropdown item produced by a named LOOKUP query.

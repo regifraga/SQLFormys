@@ -159,6 +159,7 @@ func (s *queryService) GetMetadata(basePath, queryPath, kind string) (domain.Met
 		ResultType:  parser.ResultType,
 		Timeout:     parser.Timeout,
 		Confirm:     parser.ConfirmMetadata(),
+		Messages:    parser.ModuleMessages(),
 		Fields:      fields,
 		Lookups:     lookupsMeta,
 		Wizard:      parser.WizardMetadata(),
@@ -237,9 +238,13 @@ func (s *queryService) executeQueryBody(ctx context.Context, absPath, queryPath,
 				return result, debugArtifact, runErr
 			}
 			result.ResultType = parser.ResultTypeForStep(stepID)
+			result = engine.ApplyResultProtocol(result)
 			return result, debugArtifact, nil
 		}
 		result, debugArtifact, runErr := engine.RunScript(ctx, absPath, resolvedKind, parser, payload, expanded)
+		if runErr == nil {
+			result = engine.ApplyResultProtocol(result)
+		}
 		return result, debugArtifact, runErr
 	}
 
@@ -507,9 +512,11 @@ func (s *queryService) runPreparedSQL(ctx context.Context, parser *engine.SQLPar
 		}
 	}
 
-	return domain.QueryResult{
+	result := domain.QueryResult{
 		Columns:    columns,
 		Rows:       results,
 		ResultType: parser.ResultType,
-	}, finalSQL, nil
+	}
+	result = engine.ApplyResultProtocol(result)
+	return result, finalSQL, nil
 }

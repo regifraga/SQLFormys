@@ -190,6 +190,7 @@ Place these at the top of the file (outside the properties block):
 | `--CONFIRM=CONFIRM` | Same as bare `--CONFIRM`. |
 | `--CONFIRM=WARNING: …` | Confirmation modal styled as a warning, with the text after the colon as the body (supports `{{FIELD}}` interpolation). |
 | `--CONFIRM=DANGER: …` | Destructive confirmation modal; primary action is **Executar mesmo assim**. |
+| `--MESSAGE=WARNING: …` | User message modal (same look as CONFIRM) when the module opens. You may use several lines. Types: **CONFIRM**, **WARNING**, **DANGER**. Supports `{{FIELD}}`. Shell/PowerShell: `#MESSAGE=…`. Does not block **Executar** (unlike `--CONFIRM`). |
 | `--RESULT_TYPE=...` | How query results are rendered in the UI (see values below). Defaults to **GRID** if missing or invalid. |
 | `--TIMEOUT=10` | Query timeout in seconds. Defaults to **60** if missing or invalid. |
 | `--CACHE=15s` | Cache **module execution** (`POST /api/queries/...`, wizard steps, named `QUERY`) for the given duration. Suffix `s` (seconds), `m` (minutes), or `h` (hours); max **24h**. Does **not** apply to LOOKUP dropdowns. Shell/PowerShell: `#CACHE=15s`. |
@@ -374,6 +375,27 @@ Optional **field subset** (comma-separated variable names). When omitted, every 
 ```
 
 Unknown field names fail at parse time. Hidden/`CONTEXT` fields cannot be listed.
+
+**`SUMMARY QUERY(…)`** runs a named `--<QUERY>` for a grid on the review screen instead of (or in addition to) field tables.
+
+**`SUMMARY … VALIDATE(Nome)`** runs another named query to decide whether **Executar** is enabled. The first row should expose `IC_EXECUTE` or `__CAN_EXECUTE` (`S`/`Y`/`1`/`true` = allow; `N`/`0`/`false` = block). Optional `DS_MESSAGE` or `__MESSAGE` explains why execution is blocked.
+
+```sql
+-- SUMMARY QUERY(Lista) VALIDATE(PodeExecutar): Confira os dados
+-- SUMMARY VALIDATE(PodeExecutar)
+```
+
+If there is no `VALIDATE` query, the UI may read `IC_EXECUTE` from the summary preview query only; when that column is absent, **Executar** stays enabled (backward compatible).
+
+**Wizard messages** (inside `--<WIZARD>`), same modal style:
+
+```sql
+-- MESSAGE StepId ENTER WARNING: Texto ao entrar na etapa
+-- MESSAGE StepId EXIT DANGER: Texto ao sair (Próximo; Cancelar permanece na etapa)
+-- MESSAGE FINISH CONFIRM: Texto antes de Executar (antes de --CONFIRM)
+```
+
+**Runtime messages** (SQL result columns, stripped from the grid): `DS_MESSAGE` / `__MESSAGE`, optional `TP_MESSAGE` / `__MESSAGE_TYPE`, and `IC_EXECUTE` / `__CAN_EXECUTE` for validation. In shell/PowerShell stdout: `SQLFORMYS_MESSAGE=WARNING: …` and `SQLFORMYS_CAN_EXECUTE=N` (lines removed from displayed output).
 
 Omit `SUMMARY` entirely for the previous behavior (**Executar** on the last real step). Shell/PowerShell use `# SUMMARY` (or `# SUMMARY: …`) inside `#<WIZARD>`.
 

@@ -1453,6 +1453,16 @@ button.wizard-stepper-item {
     margin: 0 0 16px;
 }
 
+.wizard-summary-gate-banner {
+    margin: 0 0 16px;
+    padding: 10px 14px;
+    border-radius: var(--radius-md, 8px);
+    font-size: 0.875rem;
+    border: 1px solid var(--warning-border, #e8c547);
+    background: var(--warning-bg, rgba(232, 197, 71, 0.12));
+    color: var(--text-primary);
+}
+
 .wizard-review-section + .wizard-review-section {
     margin-top: 20px;
 }

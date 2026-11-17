@@ -24,7 +24,7 @@ function isAdminUser() {
     return Boolean(identity && identity.isAdmin);
 }
 
-function openAppModal({ title, body, primaryLabel = 'Confirmar', secondaryLabel = 'Cancelar', onPrimary, onSecondary, tone, dialogClass, onClose }) {
+function openAppModal({ title, body, primaryLabel = 'Confirmar', secondaryLabel = 'Cancelar', onPrimary, onSecondary, tone, dialogClass, onClose, hideSecondary = false }) {
     const backdrop = document.getElementById('app-modal-backdrop');
     const titleEl = document.getElementById('app-modal-title');
     const bodyEl = document.getElementById('app-modal-body');
@@ -53,10 +53,11 @@ function openAppModal({ title, body, primaryLabel = 'Confirmar', secondaryLabel 
     }
     footer.innerHTML = '';
 
+    const showSecondary = !hideSecondary && secondaryLabel != null && String(secondaryLabel).trim() !== '';
     const cancel = document.createElement('button');
     cancel.type = 'button';
     cancel.className = 'btn btn-secondary';
-    cancel.textContent = secondaryLabel;
+    cancel.textContent = secondaryLabel || 'Cancelar';
     const ok = document.createElement('button');
     ok.type = 'button';
     if (tone === 'danger') {
@@ -67,7 +68,9 @@ function openAppModal({ title, body, primaryLabel = 'Confirmar', secondaryLabel 
         ok.className = 'btn btn-primary';
     }
     ok.textContent = primaryLabel;
-    footer.appendChild(cancel);
+    if (showSecondary) {
+        footer.appendChild(cancel);
+    }
     footer.appendChild(ok);
 
     const close = () => {
@@ -78,12 +81,18 @@ function openAppModal({ title, body, primaryLabel = 'Confirmar', secondaryLabel 
         backdrop.setAttribute('aria-hidden', 'true');
     };
 
-    cancel.onclick = async () => {
-        if (onSecondary) await onSecondary();
-        close();
-    };
+    if (showSecondary) {
+        cancel.onclick = async () => {
+            if (onSecondary) await onSecondary();
+            close();
+        };
+    }
     closeBtn.onclick = async () => {
-        if (onSecondary) await onSecondary();
+        if (showSecondary && onSecondary) {
+            await onSecondary();
+        } else if (!showSecondary && onPrimary) {
+            await onPrimary();
+        }
         close();
     };
     ok.onclick = async () => {

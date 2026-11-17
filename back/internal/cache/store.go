@@ -198,6 +198,8 @@ func cloneQueryResult(r domain.QueryResult) domain.QueryResult {
 	out := domain.QueryResult{
 		Columns:    append([]string(nil), r.Columns...),
 		ResultType: r.ResultType,
+		Messages:   append([]domain.UserMessage(nil), r.Messages...),
+		CanExecute: r.CanExecute,
 	}
 	if len(r.Rows) == 0 {
 		return out
