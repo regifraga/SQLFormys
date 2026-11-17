@@ -3076,9 +3076,56 @@ function promptUserMessage(meta, options = {}) {
 
 async function drainStaticMessages(when, stepId, options = {}) {
     const list = filterStaticMessages(when, stepId);
+    const whenNorm = String(when).toLowerCase();
+    const hardBlockWhen = whenNorm === 'exit' || whenNorm === 'finish';
+
     for (const msg of list) {
-        const allowCancel = options.allowCancel === true || when === 'exit' || when === 'finish';
-        const ok = await promptUserMessage(msg, { allowCancel });
+        let effective = msg;
+        let skip = false;
+        let validationFailed = false;
+
+        const validateName = String(msg.validateQueryName || msg.ValidateQueryName || '').trim();
+        if (validateName) {
+            try {
+                const validateData = await fetchNamedQueryPreview(validateName);
+                const canExec = resolveSummaryCanExecuteFromResult(validateData, true);
+                const runtime = validateData?.messages?.[0];
+                const runtimeText = String(runtime?.message || '').trim();
+                const hasRuntimeText = runtimeText !== '';
+                if (canExec === true && !hasRuntimeText) {
+                    // Validação OK sem solicitação dinâmica: não exibe o texto estático (CONFIRM etc.)
+                    skip = true;
+                } else if (canExec !== true) {
+                    validationFailed = true;
+                    const rt = String(runtime?.type || '').toUpperCase();
+                    const validTypes = { CONFIRM: 1, WARNING: 1, DANGER: 1 };
+                    effective = {
+                        ...msg,
+                        type: validTypes[rt] ? rt : 'WARNING',
+                        message: runtimeText || 'Validação não permitiu continuar.',
+                    };
+                } else {
+                    effective = mergeValidatedUserMessage(msg, validateData);
+                }
+            } catch (err) {
+                validationFailed = true;
+                effective = {
+                    ...msg,
+                    type: 'WARNING',
+                    message: err?.message || 'Falha na validação.',
+                };
+            }
+        }
+
+        if (skip) continue;
+
+        const allowCancel = options.allowCancel === true || whenNorm === 'exit' || whenNorm === 'finish';
+        const promptAllowCancel = validationFailed ? false : allowCancel;
+        const ok = await promptUserMessage(effective, { allowCancel: promptAllowCancel });
+
+        if (validationFailed && hardBlockWhen) {
+            return false;
+        }
         if (!ok) return false;
     }
     return true;
@@ -3111,6 +3158,19 @@ function resolveSummaryCanExecuteFromResult(data, strictValidate) {
         return false;
     }
     return null;
+}
+
+function mergeValidatedUserMessage(staticMsg, validateData) {
+    const runtime = validateData?.messages?.[0];
+    const validTypes = { CONFIRM: 1, WARNING: 1, DANGER: 1 };
+    let type = String(staticMsg?.type || 'WARNING').toUpperCase();
+    if (runtime?.type) {
+        const rt = String(runtime.type).toUpperCase();
+        if (validTypes[rt]) type = rt;
+    }
+    const runtimeText = String(runtime?.message || '').trim();
+    const message = runtimeText || String(staticMsg?.message || '').trim();
+    return { ...staticMsg, type, message };
 }
 
 function applyWizardSummaryExecuteGate(previewData, validateData) {

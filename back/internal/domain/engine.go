@@ -40,10 +40,11 @@ type WizardSummaryMeta struct {
 
 // UserMessage is a static or runtime message shown in the CONFIRM-style modal.
 type UserMessage struct {
-	When    string `json:"when"` // load, enter, exit, finish, runtime
-	StepID  string `json:"stepId,omitempty"`
-	Type    string `json:"type"`
-	Message string `json:"message"`
+	When              string `json:"when"` // load, enter, exit, finish, runtime
+	StepID            string `json:"stepId,omitempty"`
+	Type              string `json:"type"`
+	Message           string `json:"message"`
+	ValidateQueryName string `json:"validateQueryName,omitempty"`
 }
 
 // WizardMetadata is returned when a module defines STEP/WIZARD blocks.

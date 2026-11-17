@@ -13,8 +13,10 @@ func messageDirectiveLineRegex(prefix string) *regexp.Regexp {
 	return regexp.MustCompile(`^\s*` + p + `MESSAGE(?:\s*=\s*(.*))?\s*$`)
 }
 
-var wizardMessageFinishRegex = regexp.MustCompile(`(?i)^MESSAGE\s+FINISH\s+(CONFIRM|WARNING|DANGER)\s*:\s*(.+)$`)
-var wizardMessageStepRegex = regexp.MustCompile(`(?i)^MESSAGE\s+([A-Za-z][A-Za-z0-9_]*)\s+(ENTER|EXIT)\s+(CONFIRM|WARNING|DANGER)\s*:\s*(.+)$`)
+var wizardMessageValidateOpt = `(?:VALIDATE\s*\(\s*([A-Za-z][A-Za-z0-9_]*)\s*\)\s+)?`
+
+var wizardMessageFinishRegex = regexp.MustCompile(`(?i)^MESSAGE\s+FINISH\s+` + wizardMessageValidateOpt + `(CONFIRM|WARNING|DANGER)\s*:\s*(.+)$`)
+var wizardMessageStepRegex = regexp.MustCompile(`(?i)^MESSAGE\s+([A-Za-z][A-Za-z0-9_]*)\s+(ENTER|EXIT)\s+` + wizardMessageValidateOpt + `(CONFIRM|WARNING|DANGER)\s*:\s*(.+)$`)
 
 func parseMessageTypeAndBody(raw string) (msgType, message string, ok bool) {
 	raw = strings.TrimSpace(raw)
@@ -78,11 +80,15 @@ func parseWizardMessages(content, linePrefix string, stepIDs map[string]string) 
 		}
 		trimmed := strings.TrimSpace(strings.TrimPrefix(line, linePrefix))
 		if m := wizardMessageFinishRegex.FindStringSubmatch(trimmed); len(m) >= 3 {
-			out = append(out, domain.UserMessage{
+			um := domain.UserMessage{
 				When:    "finish",
-				Type:    strings.ToUpper(m[1]),
-				Message: strings.TrimSpace(m[2]),
-			})
+				Type:    strings.ToUpper(m[2]),
+				Message: strings.TrimSpace(m[3]),
+			}
+			if len(m) > 1 && strings.TrimSpace(m[1]) != "" {
+				um.ValidateQueryName = strings.TrimSpace(m[1])
+			}
+			out = append(out, um)
 			continue
 		}
 		if m := wizardMessageStepRegex.FindStringSubmatch(trimmed); len(m) >= 5 {
@@ -91,12 +97,16 @@ func parseWizardMessages(content, linePrefix string, stepIDs map[string]string) 
 			if _, ok := stepIDs[strings.ToUpper(stepID)]; !ok {
 				return nil, fmt.Errorf("MESSAGE referencia step inexistente %q", stepID)
 			}
-			out = append(out, domain.UserMessage{
+			um := domain.UserMessage{
 				When:    when,
 				StepID:  stepIDs[strings.ToUpper(stepID)],
-				Type:    strings.ToUpper(m[3]),
-				Message: strings.TrimSpace(m[4]),
-			})
+				Type:    strings.ToUpper(m[4]),
+				Message: strings.TrimSpace(m[5]),
+			}
+			if len(m) > 3 && strings.TrimSpace(m[3]) != "" {
+				um.ValidateQueryName = strings.TrimSpace(m[3])
+			}
+			out = append(out, um)
 		}
 	}
 	return out, nil

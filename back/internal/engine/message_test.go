@@ -42,6 +42,47 @@ func TestParseWizardMessages(t *testing.T) {
 	assert.Equal(t, "finish", p.Messages[2].When)
 }
 
+func TestParseWizardMessagesWithValidate(t *testing.T) {
+	sql := `--<STEP A>
+--<PROPERTIES>
+-- SELECT @?NM:VARCHAR:10:=:Nome
+--</PROPERTIES>
+--</STEP>
+--<QUERY PodeExecutar>
+SELECT 'S' AS IC_EXECUTE
+--</QUERY>
+--<WIZARD>
+-- STEP A: Etapa
+-- MESSAGE A ENTER VALIDATE(PodeExecutar) WARNING: Ao entrar
+-- MESSAGE A EXIT VALIDATE(PodeExecutar) CONFIRM: Ao sair
+-- MESSAGE FINISH VALIDATE(PodeExecutar) DANGER: Ao executar
+--</WIZARD>
+`
+	p, err := ParseMetadata(sql)
+	require.NoError(t, err)
+	require.Len(t, p.Messages, 3)
+	assert.Equal(t, "PodeExecutar", p.Messages[0].ValidateQueryName)
+	assert.Equal(t, "enter", p.Messages[0].When)
+	assert.Equal(t, "PodeExecutar", p.Messages[2].ValidateQueryName)
+	assert.Equal(t, "finish", p.Messages[2].When)
+}
+
+func TestParseWizardMessagesValidateMissingQuery(t *testing.T) {
+	sql := `--<STEP A>
+--<PROPERTIES>
+-- SELECT @?NM:VARCHAR:10:=:Nome
+--</PROPERTIES>
+--</STEP>
+--<WIZARD>
+-- STEP A: Etapa
+-- MESSAGE A EXIT VALIDATE(Ausente) CONFIRM: Falha
+--</WIZARD>
+`
+	_, err := ParseMetadata(sql)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "VALIDATE QUERY inexistente")
+}
+
 func TestParseWizardSummaryValidate(t *testing.T) {
 	sql := `--<STEP A>
 --<PROPERTIES>

@@ -521,6 +521,13 @@ func ParseMetadataForKind(content, kind string) (*SQLParser, error) {
 			if wmErr != nil {
 				return nil, wmErr
 			}
+			for _, wm := range wizardMsgs {
+				if wm.ValidateQueryName != "" {
+					if _, ok := parser.NamedQuerySQL(wm.ValidateQueryName); !ok {
+						return nil, fmt.Errorf("MESSAGE referencia VALIDATE QUERY inexistente %q", wm.ValidateQueryName)
+					}
+				}
+			}
 			parser.Messages = append(parser.Messages, wizardMsgs...)
 		}
 		return parser, nil

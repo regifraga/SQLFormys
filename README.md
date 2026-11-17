@@ -332,6 +332,8 @@ Inside a step you can use:
 - **`QUERY(Nome)`** — run a named `--<QUERY Nome>` block from the same file.
 - **`--<QUERY Nome>` … `--</QUERY>`** nested in the step — registers that query for `QUERY(Nome)` / `SUMMARY QUERY(Nome)` and uses it as the step body when there is no other SQL after the block.
 
+Inside `--<QUERY Nome>`, every SQL line may stay commented with `--` (same style as legacy modules); the engine strips the prefix and executes the SQL. Use `--</QUERY>` or `--<QUERY>` as the closing tag.
+
 Variables assigned in step SQL (for example `@MSG`) are returned in the result set when possible and can be referenced in wizard labels via `{{MSG}}`, or sent in the payload for the next request (summary named query or final execute).
 
 The guided UI and step execution run **only** when the script contains a `--<WIZARD>` … `--</WIZARD>` block. `STEP` blocks alone do **not** enable the wizard (those modules keep a single form and **Executar**).
@@ -412,6 +414,23 @@ If there is no `VALIDATE` query, the UI may read `IC_EXECUTE` from the summary p
 -- MESSAGE StepId EXIT DANGER: Texto ao sair (Próximo; Cancelar permanece na etapa)
 -- MESSAGE FINISH CONFIRM: Texto antes de Executar (antes de --CONFIRM)
 ```
+
+Optional **`VALIDATE(Nome)`** on a message line (same named `--<QUERY>` and result protocol as **SUMMARY … VALIDATE**). When present, the UI runs that query at `ENTER`, `EXIT`, or `FINISH` with the current form values:
+
+| First row of the VALIDATE query | Behavior |
+|---|---|
+| Allows and `DS_MESSAGE` / `__MESSAGE` is empty | Message is **skipped** (no static `CONFIRM` text); navigation continues |
+| Allows and message text is non-empty | **Solicitation**: modal with text from the query (or static line as fallback); on `EXIT`/`FINISH`, Cancel stays on the step |
+| Blocks (`IC_EXECUTE` = N, or message-only non-empty text, same rules as summary) | **Validation**: modal explains why; on `EXIT`/`FINISH` the step does not advance / execute even after OK; on `ENTER` the user is only informed |
+
+```sql
+-- MESSAGE ValidarLista EXIT VALIDATE(PodeExecutar) CONFIRM: Confirma que revisou a lista para {{ NM_ARQUIVO }}?
+-- MESSAGE FINISH VALIDATE(PodeExecutar) DANGER: Não é possível executar.
+```
+
+With `VALIDATE`, the static text after `:` is used only when the query allows execution **and** returns a non-empty `DS_MESSAGE` / `__MESSAGE` (solicitation). If validation passes with an empty message column, the modal is omitted. To ask for confirmation only after a successful check, put the question in `DS_MESSAGE` when `IC_EXECUTE` allows (the static line is a fallback for that solicitation case).
+
+Shell/PowerShell: `# MESSAGE StepId EXIT VALIDATE(PodeExecutar) CONFIRM: …` inside `#<WIZARD>`.
 
 **Runtime messages** (SQL result columns, stripped from the grid): `DS_MESSAGE` / `__MESSAGE`, optional `TP_MESSAGE` / `__MESSAGE_TYPE`, and `IC_EXECUTE` / `__CAN_EXECUTE` for validation (or message-only validation when the execute flag is omitted). The message text is shown in modals or on the summary **VALIDATE** banner and supports the same `{{FIELD}}` interpolation as static UI strings. In shell/PowerShell stdout: `SQLFORMYS_MESSAGE=WARNING: …` infers a block when `SQLFORMYS_CAN_EXECUTE` is omitted; explicit `SQLFORMYS_CAN_EXECUTE=N` (lines removed from displayed output) still works as before.
 
