@@ -49,9 +49,10 @@ var (
 
 	fieldNameRegex = regexp.MustCompile(`[@?#]+([A-Za-z0-9_.]+)`)
 
-	declareStartRegex    = regexp.MustCompile(`(?i)\bDECLARE\b`)
-	propertiesStartRegex = regexp.MustCompile(`(?m)^\s*--\s*<PROPERTIES>`)
-	mainSQLStartRegex    = regexp.MustCompile(`(?m)^\s*(SELECT|INSERT|UPDATE|DELETE|EXEC|WITH)\b`)
+	declareStartRegex          = regexp.MustCompile(`(?i)\bDECLARE\b`)
+	propertiesStartRegex       = regexp.MustCompile(`(?m)^\s*--\s*<PROPERTIES>`)
+	declareContinuationRegex   = regexp.MustCompile(`(?i)^\s+@\w+`)
+	declareVarNormalizeRegex   = regexp.MustCompile(`(?i)^IF\s*\(\s*@\w+[^)]*\)\s*SET\s+@\w+.*$`)
 )
 
 func tagRegex(prefix, name string) *regexp.Regexp {
@@ -212,6 +213,83 @@ func stripNamedQueriesForSQL(sqlContent string) string {
 	return StripNamedQueryBlocks(sqlContent, "--")
 }
 
+// sqlServerDeclarePreambleEnd returns the byte offset within rest (starting at DECLARE) where
+// the DECLARE preamble ends. It includes consecutive DECLARE lines, optional IF (@x) SET @x
+// normalizers, and does not stop at SELECT/UPDATE inside IF/BEGIN blocks.
+func sqlServerDeclarePreambleEnd(rest string) int {
+	if strings.TrimSpace(rest) == "" {
+		return 0
+	}
+	lines := strings.Split(rest, "\n")
+	offset := 0
+	i := 0
+
+	for i < len(lines) {
+		line := lines[i]
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			offset += len(line) + 1
+			i++
+			continue
+		}
+		if !declareStartRegex.MatchString(trimmed) {
+			break
+		}
+		for {
+			offset += len(lines[i]) + 1
+			i++
+			if i >= len(lines) {
+				return offset
+			}
+			next := strings.TrimSpace(lines[i])
+			if next == "" {
+				break
+			}
+			if declareContinuationRegex.MatchString(lines[i]) {
+				continue
+			}
+			if declareStartRegex.MatchString(next) {
+				break
+			}
+			break
+		}
+	}
+
+	for i < len(lines) {
+		line := lines[i]
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			offset += len(line) + 1
+			i++
+			continue
+		}
+		if strings.HasPrefix(trimmed, "--") {
+			offset += len(line) + 1
+			i++
+			continue
+		}
+		if declareVarNormalizeRegex.MatchString(trimmed) {
+			offset += len(line) + 1
+			i++
+			continue
+		}
+		break
+	}
+	return offset
+}
+
+func declareBlockEndOffset(rest string) int {
+	end := len(rest)
+	if propLoc := propertiesStartRegex.FindStringIndex(rest); propLoc != nil && propLoc[0] > 0 {
+		end = propLoc[0]
+	}
+	preambleEnd := sqlServerDeclarePreambleEnd(rest)
+	if preambleEnd > 0 && preambleEnd < end {
+		end = preambleEnd
+	}
+	return end
+}
+
 // extractSqlServerDeclareBlock returns the DECLARE section at the top of a script (before --<PROPERTIES>).
 func extractSqlServerDeclareBlock(fileContent string) string {
 	content := stripNamedQueriesForSQL(StripLookupBlocks(fileContent))
@@ -220,15 +298,7 @@ func extractSqlServerDeclareBlock(fileContent string) string {
 		return ""
 	}
 	rest := content[loc[0]:]
-	end := len(rest)
-	propLoc := propertiesStartRegex.FindStringIndex(rest)
-	sqlLoc := mainSQLStartRegex.FindStringIndex(rest)
-	if propLoc != nil {
-		end = propLoc[0]
-	}
-	if sqlLoc != nil && sqlLoc[0] > 0 && sqlLoc[0] < end {
-		end = sqlLoc[0]
-	}
+	end := declareBlockEndOffset(rest)
 	block := strings.TrimSpace(rest[:end])
 	if block == "" {
 		return ""
@@ -245,15 +315,7 @@ func stripSqlServerDeclareBlock(content string) string {
 		return content
 	}
 	rest := content[loc[0]:]
-	end := len(rest)
-	propLoc := propertiesStartRegex.FindStringIndex(rest)
-	sqlLoc := mainSQLStartRegex.FindStringIndex(rest)
-	if propLoc != nil {
-		end = propLoc[0]
-	}
-	if sqlLoc != nil && sqlLoc[0] > 0 && sqlLoc[0] < end {
-		end = sqlLoc[0]
-	}
+	end := declareBlockEndOffset(rest)
 	if end == 0 || end >= len(rest) {
 		return content
 	}
@@ -409,6 +471,14 @@ func ParseMetadataForKind(content, kind string) (*SQLParser, error) {
 		parser.WizardEnabled = hasWizardBlock(content, d.linePrefix)
 		for _, st := range steps {
 			parser.Fields = append(parser.Fields, st.Fields...)
+			if len(st.NestedNamedQueries) > 0 {
+				if parser.NamedQueries == nil {
+					parser.NamedQueries = make(map[string]string)
+				}
+				if err := mergeStepNamedQueries(parser.NamedQueries, st.NestedNamedQueries, st.ID); err != nil {
+					return nil, err
+				}
+			}
 		}
 		if parser.WizardEnabled {
 			summaryOn, summaryLabel, summaryFields, summaryQuery, sumErr := parseWizardSummary(content, d.linePrefix)

@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -775,6 +776,49 @@ func TestExtractSqlServerDeclareBlock(t *testing.T) {
 	assert.NotContains(t, block, "PROPERTIES")
 
 	assert.Equal(t, "", extractSqlServerDeclareBlock("--<PROPERTIES>\n--SELECT @?X:INT:1:=:X\n--</PROPERTIES>\nSELECT 1"))
+}
+
+func TestDeclareStartRegexDoesNotMatchIfNormalize(t *testing.T) {
+	line := "IF (@NR_SEQ_LOG = 0) SET @NR_SEQ_LOG = NULL;"
+	assert.False(t, declareStartRegex.MatchString(strings.TrimSpace(line)))
+	assert.True(t, declareVarNormalizeRegex.MatchString(strings.TrimSpace(line)))
+}
+
+func TestSqlServerDeclarePreambleEndFullIfNormalize(t *testing.T) {
+	rest := "DECLARE @NR_SEQ_LOG BIGINT = NULL;\nDECLARE @MSG VARCHAR(100) = '';\n\nIF (@NR_SEQ_LOG = 0) SET @NR_SEQ_LOG = NULL;\n\nIF EXISTS ("
+	end := sqlServerDeclarePreambleEnd(rest)
+	assert.True(t, strings.HasPrefix(strings.TrimLeft(rest[end:], "\r\n"), "IF EXISTS"), "end=%d suffix=%q", end, rest[end:])
+	out := stripSqlServerDeclareBlock(rest)
+	assert.NotContains(t, out, "LL;")
+	assert.Contains(t, out, "IF EXISTS")
+}
+
+func TestStripSqlServerDeclareBlockPreservesIfElse(t *testing.T) {
+	sql := `DECLARE @NR_SEQ_LOG BIGINT = NULL;
+
+IF (@NR_SEQ_LOG = 0) SET @NR_SEQ_LOG = NULL;
+
+IF EXISTS (
+		SELECT TOP 1 1 FROM t WHERE id = @NR_SEQ_LOG
+)
+BEGIN
+	UPDATE t SET x = 1 WHERE id = @NR_SEQ_LOG
+END
+ELSE
+BEGIN
+	UPDATE t SET x = 2 WHERE id = @NR_SEQ_LOG
+END
+SELECT 1 AS n`
+	block := extractSqlServerDeclareBlock(sql)
+	assert.Contains(t, block, "DECLARE @NR_SEQ_LOG")
+	assert.Contains(t, block, "IF (@NR_SEQ_LOG = 0) SET @NR_SEQ_LOG = NULL")
+	assert.NotContains(t, block, "IF EXISTS")
+
+	residual := stripSqlServerDeclareBlock(sql)
+	assert.Contains(t, residual, "IF EXISTS")
+	assert.Contains(t, residual, "ELSE")
+	assert.Contains(t, residual, "UPDATE t SET x = 1")
+	assert.NotContains(t, residual, "DECLARE @NR_SEQ_LOG")
 }
 
 func TestInjectValuesConditionalComments(t *testing.T) {

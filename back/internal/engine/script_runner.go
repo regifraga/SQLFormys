@@ -15,27 +15,53 @@ import (
 	"sqlformys/internal/modulekind"
 )
 
-// RunScriptStep runs one wizard step body for script modules, or the full script when step has no body.
-func RunScriptStep(ctx context.Context, absPath, kind string, parser *SQLParser, payload map[string]interface{}, stepID, moduleSource string) (domain.QueryResult, error) {
+func formatScriptDebugArtifact(parser *SQLParser, payload map[string]interface{}, scriptContent string) string {
 	if parser == nil {
-		return domain.QueryResult{}, fmt.Errorf("parser inválido")
+		return strings.TrimSpace(scriptContent)
+	}
+	var b strings.Builder
+	b.WriteString("# Variáveis de ambiente (formulário)\n")
+	for _, field := range parser.Fields {
+		val, exists := payload[field.Field]
+		if !exists || val == nil {
+			val = ""
+		}
+		fmt.Fprintf(&b, "%s=%s\n", field.Field, formatEnvValue(val))
+	}
+	if stepVal, ok := payload["SQLFORMYS_STEP"]; ok {
+		fmt.Fprintf(&b, "SQLFORMYS_STEP=%s\n", formatEnvValue(stepVal))
+	}
+	b.WriteString("\n# Script / comando executado\n")
+	b.WriteString(scriptContent)
+	return b.String()
+}
+
+// RunScriptStep runs one wizard step body for script modules, or the full script when step has no body.
+func RunScriptStep(ctx context.Context, absPath, kind string, parser *SQLParser, payload map[string]interface{}, stepID, moduleSource string) (domain.QueryResult, string, error) {
+	if parser == nil {
+		return domain.QueryResult{}, "", fmt.Errorf("parser inválido")
 	}
 	if !parser.HasWizard() {
 		return RunScript(ctx, absPath, kind, parser, payload, moduleSource)
 	}
 	st, ok := parser.StepByID(stepID)
 	if !ok {
-		return domain.QueryResult{}, fmt.Errorf("step %q não encontrado", stepID)
+		return domain.QueryResult{}, "", fmt.Errorf("step %q não encontrado", stepID)
 	}
-	if strings.TrimSpace(st.Body) == "" {
-		return domain.QueryResult{Columns: []string{}, Rows: []map[string]interface{}{}, ResultType: parser.ResultTypeForStep(stepID)}, nil
+	linePrefix := "--"
+	if modulekind.NormalizeKind(kind) != modulekind.KindSQL {
+		linePrefix = "#"
+	}
+	body := normalizeNamedQueryBody(st.Body, linePrefix)
+	if strings.TrimSpace(body) == "" {
+		return domain.QueryResult{Columns: []string{}, Rows: []map[string]interface{}{}, ResultType: parser.ResultTypeForStep(stepID)}, "", nil
 	}
 	rt := parser.ResultTypeForStep(stepID)
 	workParser := *parser
 	workParser.ResultType = rt
 	payload = copyPayload(payload)
 	payload["SQLFORMYS_STEP"] = stepID
-	return runScriptBody(ctx, absPath, kind, &workParser, payload, st.Body)
+	return runScriptBody(ctx, absPath, kind, &workParser, payload, body)
 }
 
 func copyPayload(src map[string]interface{}) map[string]interface{} {
@@ -46,7 +72,8 @@ func copyPayload(src map[string]interface{}) map[string]interface{} {
 	return out
 }
 
-func runScriptBody(ctx context.Context, absPath, kind string, parser *SQLParser, payload map[string]interface{}, body string) (domain.QueryResult, error) {
+func runScriptBody(ctx context.Context, absPath, kind string, parser *SQLParser, payload map[string]interface{}, body string) (domain.QueryResult, string, error) {
+	debugArtifact := formatScriptDebugArtifact(parser, payload, body)
 	timeout := 60
 	if parser.Timeout > 0 {
 		timeout = parser.Timeout
@@ -68,7 +95,7 @@ func runScriptBody(ctx context.Context, absPath, kind string, parser *SQLParser,
 
 	scriptPath, err := filepath.Abs(absPath)
 	if err != nil {
-		return domain.QueryResult{}, fmt.Errorf("caminho do script inválido: %w", err)
+		return domain.QueryResult{}, debugArtifact, fmt.Errorf("caminho do script inválido: %w", err)
 	}
 
 	var cmd *exec.Cmd
@@ -78,7 +105,7 @@ func runScriptBody(ctx context.Context, absPath, kind string, parser *SQLParser,
 		if err != nil {
 			sh, err2 := exec.LookPath("sh")
 			if err2 != nil {
-				return domain.QueryResult{}, fmt.Errorf("bash/sh não encontrado no PATH")
+				return domain.QueryResult{}, debugArtifact, fmt.Errorf("bash/sh não encontrado no PATH")
 			}
 			bash = sh
 		}
@@ -86,11 +113,11 @@ func runScriptBody(ctx context.Context, absPath, kind string, parser *SQLParser,
 	case modulekind.KindPS1:
 		pwsh, err := resolvePwshExecutable()
 		if err != nil {
-			return domain.QueryResult{}, err
+			return domain.QueryResult{}, debugArtifact, err
 		}
 		cmd = exec.CommandContext(runCtx, pwsh, "-NoProfile", "-NonInteractive", "-Command", body)
 	default:
-		return domain.QueryResult{}, fmt.Errorf("tipo de script não suportado: %s", kind)
+		return domain.QueryResult{}, debugArtifact, fmt.Errorf("tipo de script não suportado: %s", kind)
 	}
 	cmd.Env = env
 	cmd.Dir = filepath.Dir(scriptPath)
@@ -103,7 +130,7 @@ func runScriptBody(ctx context.Context, absPath, kind string, parser *SQLParser,
 		if msg == "" {
 			msg = err.Error()
 		}
-		return domain.QueryResult{}, fmt.Errorf("falha ao executar script: %s", msg)
+		return domain.QueryResult{}, debugArtifact, fmt.Errorf("falha ao executar script: %s", msg)
 	}
 
 	out := stdout.String()
@@ -114,16 +141,16 @@ func runScriptBody(ctx context.Context, absPath, kind string, parser *SQLParser,
 	if strings.EqualFold(resultType, "GRID") {
 		qr, err := gridFromScriptJSON(out)
 		if err != nil {
-			return domain.QueryResult{}, err
+			return domain.QueryResult{}, debugArtifact, err
 		}
 		qr.ResultType = "GRID"
-		return qr, nil
+		return qr, debugArtifact, nil
 	}
 	return domain.QueryResult{
 		Columns:    []string{"stdout"},
 		Rows:       []map[string]interface{}{{"stdout": out}},
 		ResultType: resultType,
-	}, nil
+	}, debugArtifact, nil
 }
 
 func materializeScriptFile(absPath, kind, moduleSource string) (scriptPath string, cleanup func(), err error) {
@@ -154,10 +181,18 @@ func materializeScriptFile(absPath, kind, moduleSource string) (scriptPath strin
 
 // RunScript executes a .sh or .ps1 module with form values passed as environment variables.
 // moduleSource, when non-empty, is the expanded file content (INCLUDE resolved); otherwise absPath is executed as-is.
-func RunScript(ctx context.Context, absPath, kind string, parser *SQLParser, payload map[string]interface{}, moduleSource string) (domain.QueryResult, error) {
+func RunScript(ctx context.Context, absPath, kind string, parser *SQLParser, payload map[string]interface{}, moduleSource string) (domain.QueryResult, string, error) {
 	if parser == nil {
-		return domain.QueryResult{}, fmt.Errorf("parser inválido")
+		return domain.QueryResult{}, "", fmt.Errorf("parser inválido")
 	}
+	scriptContent := strings.TrimSpace(moduleSource)
+	if scriptContent == "" {
+		if data, readErr := os.ReadFile(absPath); readErr == nil {
+			scriptContent = string(data)
+		}
+	}
+	debugArtifact := formatScriptDebugArtifact(parser, payload, scriptContent)
+
 	timeout := 60
 	if parser.Timeout > 0 {
 		timeout = parser.Timeout
@@ -176,18 +211,18 @@ func RunScript(ctx context.Context, absPath, kind string, parser *SQLParser, pay
 
 	origPath, err := filepath.Abs(absPath)
 	if err != nil {
-		return domain.QueryResult{}, fmt.Errorf("caminho do script inválido: %w", err)
+		return domain.QueryResult{}, debugArtifact, fmt.Errorf("caminho do script inválido: %w", err)
 	}
 
 	scriptPath, cleanup, err := materializeScriptFile(absPath, kind, moduleSource)
 	defer cleanup()
 	if err != nil {
-		return domain.QueryResult{}, err
+		return domain.QueryResult{}, debugArtifact, err
 	}
 
 	cmd, err := scriptCommand(runCtx, kind, scriptPath)
 	if err != nil {
-		return domain.QueryResult{}, err
+		return domain.QueryResult{}, debugArtifact, err
 	}
 	cmd.Env = env
 	cmd.Dir = filepath.Dir(origPath)
@@ -201,7 +236,7 @@ func RunScript(ctx context.Context, absPath, kind string, parser *SQLParser, pay
 		if msg == "" {
 			msg = err.Error()
 		}
-		return domain.QueryResult{}, fmt.Errorf("falha ao executar script: %s", msg)
+		return domain.QueryResult{}, debugArtifact, fmt.Errorf("falha ao executar script: %s", msg)
 	}
 
 	out := stdout.String()
@@ -213,17 +248,17 @@ func RunScript(ctx context.Context, absPath, kind string, parser *SQLParser, pay
 	if strings.EqualFold(resultType, "GRID") {
 		qr, err := gridFromScriptJSON(out)
 		if err != nil {
-			return domain.QueryResult{}, err
+			return domain.QueryResult{}, debugArtifact, err
 		}
 		qr.ResultType = "GRID"
-		return qr, nil
+		return qr, debugArtifact, nil
 	}
 
 	return domain.QueryResult{
 		Columns:    []string{"stdout"},
 		Rows:       []map[string]interface{}{{"stdout": out}},
 		ResultType: resultType,
-	}, nil
+	}, debugArtifact, nil
 }
 
 func formatEnvValue(val interface{}) string {

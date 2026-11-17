@@ -2,6 +2,7 @@ package cache
 
 import (
 	"encoding/json"
+	"errors"
 	"sync"
 	"time"
 
@@ -117,12 +118,16 @@ func (s *Store) DoQuery(key string, ttl time.Duration, fn func() (domain.QueryRe
 		}
 		result, sql, runErr := fn()
 		if runErr != nil {
-			return nil, runErr
+			return nil, &ExecError{SQL: sql, Err: runErr}
 		}
 		s.SetQuery(key, ttl, result)
 		return queryFlight{result: result, sql: sql, status: StatusMiss}, nil
 	})
 	if err != nil {
+		var execErr *ExecError
+		if errors.As(err, &execErr) && execErr != nil {
+			return domain.QueryResult{}, execErr.SQL, StatusBypass, execErr.Err
+		}
 		return domain.QueryResult{}, "", StatusBypass, err
 	}
 	qf := v.(queryFlight)
@@ -143,12 +148,16 @@ func (s *Store) DoLookup(key string, ttl time.Duration, fn func() (domain.Lookup
 		}
 		result, sql, runErr := fn()
 		if runErr != nil {
-			return nil, runErr
+			return nil, &ExecError{SQL: sql, Err: runErr}
 		}
 		s.SetLookup(key, ttl, result)
 		return lookupFlight{result: result, sql: sql, status: StatusMiss}, nil
 	})
 	if err != nil {
+		var execErr *ExecError
+		if errors.As(err, &execErr) && execErr != nil {
+			return domain.LookupResult{}, execErr.SQL, StatusBypass, execErr.Err
+		}
 		return domain.LookupResult{}, "", StatusBypass, err
 	}
 	lf := v.(lookupFlight)

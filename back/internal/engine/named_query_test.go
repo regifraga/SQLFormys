@@ -128,7 +128,7 @@ QUERY(Lista)
 `
 	parser, err := ParseMetadata(sql)
 	require.NoError(t, err)
-	final, err := InjectStepValues(sql, "Last", "sql", map[string]interface{}{"NM": "x"}, parser.Fields, "GRID", "sqlserver")
+	final, err := InjectStepValues(sql, "Last", "sql", map[string]interface{}{"NM": "x"}, parser.Fields, "GRID", "sqlserver", false, false)
 	require.NoError(t, err)
 	assert.Contains(t, final, "SELECT @NM AS Nome")
 	assert.NotContains(t, final, "QUERY(Lista)")

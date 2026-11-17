@@ -24,7 +24,7 @@ function isAdminUser() {
     return Boolean(identity && identity.isAdmin);
 }
 
-function openAppModal({ title, body, primaryLabel = 'Confirmar', secondaryLabel = 'Cancelar', onPrimary, onSecondary, tone }) {
+function openAppModal({ title, body, primaryLabel = 'Confirmar', secondaryLabel = 'Cancelar', onPrimary, onSecondary, tone, dialogClass, onClose }) {
     const backdrop = document.getElementById('app-modal-backdrop');
     const titleEl = document.getElementById('app-modal-title');
     const bodyEl = document.getElementById('app-modal-body');
@@ -34,10 +34,13 @@ function openAppModal({ title, body, primaryLabel = 'Confirmar', secondaryLabel 
     if (!backdrop || !titleEl || !bodyEl || !footer) return;
 
     if (dialog) {
-        dialog.classList.remove('app-modal--confirm', 'app-modal--warning', 'app-modal--danger');
+        dialog.classList.remove('app-modal--confirm', 'app-modal--warning', 'app-modal--danger', 'app-modal--code');
         const toneClass = tone && ['confirm', 'warning', 'danger'].includes(tone) ? `app-modal--${tone}` : '';
         if (toneClass) {
             dialog.classList.add(toneClass);
+        }
+        if (dialogClass && typeof dialogClass === 'string') {
+            dialog.classList.add(dialogClass);
         }
     }
 
@@ -68,6 +71,9 @@ function openAppModal({ title, body, primaryLabel = 'Confirmar', secondaryLabel 
     footer.appendChild(ok);
 
     const close = () => {
+        if (onClose) {
+            onClose();
+        }
         backdrop.classList.add('hidden');
         backdrop.setAttribute('aria-hidden', 'true');
     };

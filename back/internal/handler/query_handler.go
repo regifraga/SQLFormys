@@ -135,8 +135,8 @@ func (h *QueryHandler) ExecuteQuery(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			log.Printf("ERROR: Falha na execução da QUERY nomeada %s em %s | Payload: %+v | Erro: %v | SQL Gerado: %s",
 				namedQuery, filepathParam, payload, err, finalSQL)
-			var debugQuery string
-			if h.cfg.Environment == "development" || h.cfg.Environment == "local" {
+			debugQuery := ""
+			if h.requestIsAdmin(r) {
 				debugQuery = finalSQL
 			}
 			status := http.StatusInternalServerError
@@ -153,7 +153,8 @@ func (h *QueryHandler) ExecuteQuery(w http.ResponseWriter, r *http.Request) {
 	}
 
 	stepID := strings.TrimSpace(r.URL.Query().Get("step"))
-	results, finalSQL, cacheStatus, err := h.svc.ExecuteQuery(r.Context(), basePath, filepathParam, kind, stepID, payload, h.cfg.DBDriver, h.cfg.DBDsn)
+	wizardFinal := queryFlagTrue(r.URL.Query().Get("wizardFinal"))
+	results, finalSQL, cacheStatus, err := h.svc.ExecuteQuery(r.Context(), basePath, filepathParam, kind, stepID, wizardFinal, payload, h.cfg.DBDriver, h.cfg.DBDsn)
 	if err != nil {
 		if strings.Contains(err.Error(), "step") && (strings.Contains(err.Error(), "inválido") || strings.Contains(err.Error(), "não encontrado")) {
 			respondWithError(w, http.StatusBadRequest, err.Error())
@@ -161,8 +162,8 @@ func (h *QueryHandler) ExecuteQuery(w http.ResponseWriter, r *http.Request) {
 		}
 		log.Printf("ERROR: Falha na execução da query %s | Driver: %s | Payload: %+v | Erro: %v | SQL Gerado: %s",
 			filepathParam, h.cfg.DBDriver, payload, err, finalSQL)
-		var debugQuery string
-		if h.cfg.Environment == "development" || h.cfg.Environment == "local" {
+		debugQuery := ""
+		if h.requestIsAdmin(r) {
 			debugQuery = finalSQL
 		}
 		respondWithError(w, http.StatusInternalServerError, err.Error(), debugQuery)
@@ -233,8 +234,8 @@ func (h *QueryHandler) ExecuteLookup(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Printf("ERROR: Falha na execução do lookup %s em %s | Driver: %s | Payload: %+v | Erro: %v | SQL Gerado: %s",
 			lookupName, filepathParam, h.cfg.DBDriver, payload, err, finalSQL)
-		var debugQuery string
-		if h.cfg.Environment == "development" || h.cfg.Environment == "local" {
+		debugQuery := ""
+		if h.requestIsAdmin(r) {
 			debugQuery = finalSQL
 		}
 		status := http.StatusInternalServerError
@@ -252,4 +253,13 @@ func (h *QueryHandler) ExecuteLookup(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("X-Cache", cacheStatus)
 	json.NewEncoder(w).Encode(results)
+}
+
+func queryFlagTrue(raw string) bool {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "1", "true", "yes", "on":
+		return true
+	default:
+		return false
+	}
 }

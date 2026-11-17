@@ -125,7 +125,59 @@ function generateNotificationId() {
     return `n-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
-function addNotificationEntry({ title, message, type, context, read }) {
+function notificationViewerIsAdmin() {
+    if (typeof window.isAdminUser === 'function') {
+        return window.isAdminUser();
+    }
+    const id = typeof getAuthIdentity === 'function' ? getAuthIdentity() : null;
+    return Boolean(id && id.isAdmin);
+}
+
+function canShowNotificationDebugQuery(item) {
+    if (!item || item.type !== 'error') return false;
+    if (!notificationViewerIsAdmin()) return false;
+    const dq = item.debugQuery;
+    return Boolean(dq && String(dq).trim());
+}
+
+function normalizeDebugKind(kind) {
+    const k = String(kind || 'sql').toLowerCase();
+    if (k === 'sh' || k === 'ps1') return k;
+    return 'sql';
+}
+
+function debugKindLabel(kind) {
+    const k = normalizeDebugKind(kind);
+    if (k === 'sh') return 'Shell';
+    if (k === 'ps1') return 'PowerShell';
+    return 'SQL';
+}
+
+function codemirrorModeForDebugKind(kind) {
+    const k = normalizeDebugKind(kind);
+    if (k === 'sh') return 'text/x-sh';
+    if (k === 'ps1') return 'application/x-powershell';
+    return 'text/x-sql';
+}
+
+function codemirrorThemeForDebug() {
+    const theme = document.documentElement.getAttribute('data-theme');
+    return theme === 'dark' ? 'dracula' : 'default';
+}
+
+let notificationDebugEditor = null;
+
+function destroyNotificationDebugEditor() {
+    if (!notificationDebugEditor) return;
+    try {
+        notificationDebugEditor.toTextArea();
+    } catch (_e) {
+        /* ignore */
+    }
+    notificationDebugEditor = null;
+}
+
+function addNotificationEntry({ title, message, type, context, read, debugQuery, debugKind }) {
     const item = {
         id: generateNotificationId(),
         title: String(title ?? '').trim() || 'Notificação',
@@ -135,6 +187,10 @@ function addNotificationEntry({ title, message, type, context, read }) {
         read: Boolean(read),
         context: context ? String(context) : undefined,
     };
+    if (debugQuery && String(debugQuery).trim()) {
+        item.debugQuery = String(debugQuery);
+        item.debugKind = normalizeDebugKind(debugKind);
+    }
     notificationsCache.unshift(item);
     if (notificationsCache.length > NOTIFICATIONS_MAX) {
         notificationsCache = notificationsCache.slice(0, NOTIFICATIONS_MAX);
@@ -214,7 +270,85 @@ function formatNotificationForCopy(item) {
         lines.push(`Módulo: ${item.context}`);
     }
     lines.push('', 'Mensagem:', plainMessageFromNotification(item.message));
+    if (item.debugQuery && String(item.debugQuery).trim()) {
+        lines.push('', 'Script / query interpretado:', String(item.debugQuery));
+    }
     return lines.join('\n');
+}
+
+function openNotificationDebugModal(debugQuery, kind) {
+    const text = String(debugQuery ?? '');
+    if (!text.trim() || typeof openAppModal !== 'function') return;
+
+    destroyNotificationDebugEditor();
+    const moduleKind = normalizeDebugKind(kind);
+
+    const mountHighlight = () => {
+        if (typeof CodeMirror === 'undefined') return false;
+
+        const wrap = document.createElement('div');
+        wrap.className = 'notification-debug-cm';
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.setAttribute('readonly', 'readonly');
+        ta.setAttribute('aria-label', 'Script interpretado');
+        wrap.appendChild(ta);
+        return { wrap, ta };
+    };
+
+    const highlighted = mountHighlight();
+    const body = highlighted
+        ? highlighted.wrap
+        : (() => {
+              const pre = document.createElement('pre');
+              pre.className = 'notification-debug-pre';
+              pre.textContent = text;
+              return pre;
+          })();
+
+    openAppModal({
+        title: `Script interpretado (${debugKindLabel(moduleKind)})`,
+        body,
+        primaryLabel: 'Copiar',
+        secondaryLabel: 'Fechar',
+        dialogClass: highlighted ? 'app-modal--code' : undefined,
+        onClose: destroyNotificationDebugEditor,
+        onPrimary: async () => {
+            const ok = await copyTextToClipboard(text);
+            if (ok) {
+                showToast('Copiado', 'Conteúdo interpretado copiado.', 'success', { persist: false });
+            } else {
+                showToast('Erro', 'Não foi possível copiar.', 'error', { persist: false });
+            }
+            return false;
+        },
+    });
+
+    if (!highlighted) return;
+
+    requestAnimationFrame(() => {
+        notificationDebugEditor = CodeMirror.fromTextArea(highlighted.ta, {
+            mode: codemirrorModeForDebugKind(moduleKind),
+            theme: codemirrorThemeForDebug(),
+            readOnly: true,
+            lineNumbers: true,
+            lineWrapping: true,
+            indentWithTabs: false,
+            tabSize: 2,
+            viewportMargin: Infinity,
+        });
+        requestAnimationFrame(() => {
+            if (notificationDebugEditor) {
+                notificationDebugEditor.refresh();
+            }
+        });
+    });
+}
+
+function openNotificationDebugById(id) {
+    const item = notificationsCache.find((n) => n.id === id);
+    if (!item || !canShowNotificationDebugQuery(item)) return;
+    openNotificationDebugModal(item.debugQuery, item.debugKind);
 }
 
 async function copyTextToClipboard(text) {
@@ -374,6 +508,7 @@ function renderNotificationsList() {
         }
         row.setAttribute('data-id', item.id);
 
+        const showDebugBtn = canShowNotificationDebugQuery(item);
         row.innerHTML = `
             <div class="notification-item-icon">${notificationIconSvg(item.type)}</div>
             <div class="notification-item-body">
@@ -383,8 +518,18 @@ function renderNotificationsList() {
                 </div>
                 <div class="notification-item-message">${formatMessageForHtml(item.message)}</div>
                 ${item.context ? `<div class="notification-item-context">${escapeHtml(item.context)}</div>` : ''}
+                ${showDebugBtn ? `<button type="button" class="notification-debug-link" data-debug-id="${escapeHtml(item.id)}">Ver o que foi executado</button>` : ''}
+                ${!showDebugBtn && item.type === 'error' && item.title === 'Erro de Execução' && notificationViewerIsAdmin()
+                    ? '<p class="notification-debug-hint">Execute de novo após atualizar a API para capturar o script interpretado neste histórico.</p>'
+                    : ''}
             </div>
             <div class="notification-item-actions">
+                ${showDebugBtn ? `<button type="button" class="notification-item-action notification-item-debug icon-btn" aria-label="Ver script interpretado" title="Ver o que foi executado" data-debug-id="${escapeHtml(item.id)}">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <polyline points="16 18 22 12 16 6"></polyline>
+                        <polyline points="8 6 2 12 8 18"></polyline>
+                    </svg>
+                </button>` : ''}
                 <button type="button" class="notification-item-action notification-item-copy icon-btn" aria-label="Copiar notificação" title="Copiar para área de transferência" data-copy-id="${escapeHtml(item.id)}">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                         <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
@@ -446,13 +591,12 @@ function showToast(title, message, type = 'success', options = null) {
             message: safeMessage,
             type: toastType,
             context: opts.context,
+            debugQuery: opts.debugQuery,
+            debugKind: opts.debugKind,
             read: false,
         });
         updateNotificationBadge();
-        const panel = document.getElementById('notifications-panel');
-        if (panel && !panel.classList.contains('hidden')) {
-            renderNotificationsList();
-        }
+        renderNotificationsList();
     }
 
     dispatchTransientToast(safeTitle, safeMessage, toastType);
@@ -551,6 +695,16 @@ function initNotificationsCenter() {
     if (list && !list.dataset.bound) {
         list.dataset.bound = '1';
         list.addEventListener('click', (e) => {
+            const debugBtn = e.target.closest('[data-debug-id], .notification-debug-link');
+            if (debugBtn) {
+                e.stopPropagation();
+                const debugId = debugBtn.getAttribute('data-debug-id');
+                if (debugId) {
+                    openNotificationDebugById(debugId);
+                }
+                return;
+            }
+
             const copyBtn = e.target.closest('[data-copy-id]');
             if (copyBtn) {
                 e.stopPropagation();

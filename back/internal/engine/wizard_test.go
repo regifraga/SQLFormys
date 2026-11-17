@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"os"
 	"strings"
 	"testing"
 
@@ -221,13 +222,162 @@ SELECT @NM_ARQUIVO AS NM
 		"NM_ARQUIVO":  "foo.sql",
 		"IC_CONFIRMA": "S",
 	}
-	final, err := InjectStepValues(sql, "S1", "sql", payload, parser.Fields, "GRID", "sqlserver")
+	final, err := InjectStepValues(sql, "S1", "sql", payload, parser.Fields, "GRID", "sqlserver", false, false)
 	require.NoError(t, err)
 	assert.Contains(t, final, "SELECT @NM_ARQUIVO='foo.sql'")
 	assert.Contains(t, final, "SELECT @NM_ARQUIVO AS NM")
 	assert.NotContains(t, final, "<STEP")
 	assert.NotContains(t, final, "<WIZARD")
 	assert.NotContains(t, final, "S2")
+}
+
+func TestParseStepBodyCommentedSQL(t *testing.T) {
+	sql := `--<STEP IDLog>
+--<PROPERTIES>
+--SELECT @?#NR_SEQ_LOG:INT:10:=:ID do LOG
+--</PROPERTIES>
+--SELECT 		TOP 1 @MSG = DC_MENSAGEM
+--FROM 			TABLE_X
+--WHERE 			NR_SEQ_LOG = @NR_SEQ_LOG
+--</STEP>
+--<WIZARD>
+-- STEP IDLog: ID do Log
+--</WIZARD>
+`
+	parser, err := ParseMetadata(sql)
+	require.NoError(t, err)
+	require.Len(t, parser.Steps, 1)
+	st := parser.Steps[0]
+	assert.True(t, st.HasQuery)
+	assert.Contains(t, st.Body, "@MSG = DC_MENSAGEM")
+	assert.NotContains(t, st.Body, "--SELECT")
+}
+
+func TestInjectStepValuesCommentedStepBody(t *testing.T) {
+	sql := `DECLARE @MSG VARCHAR(100) = '', @NR_SEQ_LOG BIGINT;
+
+--<STEP IDLog>
+--<PROPERTIES>
+--SELECT @?#NR_SEQ_LOG:INT:10:=:ID do LOG
+--</PROPERTIES>
+--SELECT TOP 1 @MSG = 'teste'
+--</STEP>
+`
+	parser, err := ParseMetadata(sql)
+	require.NoError(t, err)
+	final, err := InjectStepValues(sql, "IDLog", "sql", map[string]interface{}{"NR_SEQ_LOG": "99"}, parser.Fields, "GRID", "sqlserver", false, false)
+	require.NoError(t, err)
+	assert.Contains(t, final, "SELECT TOP 1 @MSG = 'teste'")
+	assert.Contains(t, final, "SELECT @NR_SEQ_LOG=99")
+	assert.Contains(t, final, "SELECT @MSG AS MSG")
+}
+
+func TestSqlServerDeclarePreambleEndRedeResidual(t *testing.T) {
+	path := "../../queries/RFN-Tests/Rede - Reprocessar Retorno.sql"
+	b, err := os.ReadFile(path)
+	require.NoError(t, err)
+	d := dialectForKind("sql")
+	beforeStrip := residualSQLBeforeDeclareStrip(string(b), d)
+	prepared := stripNamedQueriesForSQL(StripLookupBlocks(beforeStrip))
+	loc := declareStartRegex.FindStringIndex(prepared)
+	require.NotNil(t, loc)
+	rest := prepared[loc[0]:]
+	end := sqlServerDeclarePreambleEnd(rest)
+	assert.True(t, strings.HasPrefix(strings.TrimLeft(rest[end:], "\r\n\t "), "IF EXISTS"), "end=%d suffix=%q", end, rest[end:min(len(rest), end+25)])
+}
+
+func TestRedeReprocessarRetornoFinalSQL(t *testing.T) {
+	path := "../../queries/RFN-Tests/Rede - Reprocessar Retorno.sql"
+	b, err := os.ReadFile(path)
+	require.NoError(t, err)
+	s := string(b)
+	parser, err := ParseMetadata(s)
+	require.NoError(t, err)
+	final, err := InjectStepValues(s, "IDLog", "sql", map[string]interface{}{"NR_SEQ_LOG": "864612"}, parser.Fields, "GRID", "sqlserver", true, true)
+	require.NoError(t, err)
+	assert.NotContains(t, final, "\nLL;")
+	assert.Contains(t, final, "IF EXISTS")
+	assert.Contains(t, final, "ELSE")
+	assert.NotContains(t, final, "--<STEP IDLog>")
+}
+
+func TestInjectStepValuesWizardFinalPreservesIfElse(t *testing.T) {
+	sql := `DECLARE @NR_SEQ_LOG BIGINT = NULL;
+
+--<STEP IDLog>
+--<PROPERTIES>
+-- SELECT @?#NR_SEQ_LOG:INT:10:=:ID
+--</PROPERTIES>
+--SELECT 1 AS step_only
+--</STEP>
+--<WIZARD>
+-- STEP IDLog: Etapa
+-- SUMMARY
+--</WIZARD>
+
+IF (@NR_SEQ_LOG = 0) SET @NR_SEQ_LOG = NULL;
+
+IF EXISTS (SELECT TOP 1 1 FROM t WHERE id = @NR_SEQ_LOG)
+BEGIN
+	UPDATE t SET dh = GETDATE() WHERE id = @NR_SEQ_LOG
+END
+ELSE
+BEGIN
+	UPDATE t SET dh = DATEADD(day, -10, GETDATE()) WHERE id = @NR_SEQ_LOG
+END
+SELECT 2 AS final_row
+`
+	parser, err := ParseMetadata(sql)
+	require.NoError(t, err)
+	final, err := InjectStepValues(sql, "IDLog", "sql", map[string]interface{}{"NR_SEQ_LOG": "1"}, parser.Fields, "GRID", "sqlserver", true, true)
+	require.NoError(t, err)
+	assert.Contains(t, final, "IF EXISTS")
+	assert.Contains(t, final, "ELSE")
+	assert.NotRegexp(t, `(?s)END\s+ELSE.*UPDATE t SET dh = GETDATE\(\).*END\s+ELSE`, final)
+	assert.Contains(t, final, "final_row")
+	assert.NotContains(t, final, "step_only")
+}
+
+func TestInjectStepValuesWizardFinalUsesResidual(t *testing.T) {
+	sql := `--<STEP IDLog>
+--<PROPERTIES>
+-- SELECT @?#NR_SEQ_LOG:INT:10:=:ID
+--</PROPERTIES>
+--SELECT 1 AS step_only
+--</STEP>
+--<WIZARD>
+-- STEP IDLog: Etapa
+-- SUMMARY
+--</WIZARD>
+UPDATE module_table SET x = 1
+SELECT 2 AS final_row
+`
+	parser, err := ParseMetadata(sql)
+	require.NoError(t, err)
+	final, err := InjectStepValues(sql, "IDLog", "sql", map[string]interface{}{"NR_SEQ_LOG": "1"}, parser.Fields, "GRID", "sqlserver", true, true)
+	require.NoError(t, err)
+	assert.Contains(t, final, "UPDATE module_table")
+	assert.Contains(t, final, "final_row")
+	assert.NotContains(t, final, "step_only")
+}
+
+func TestInjectNamedQueryValuesDeclarePayloadVar(t *testing.T) {
+	sql := `DECLARE @MSG VARCHAR(100) = '', @NR_SEQ_LOG BIGINT;
+
+--<QUERY resumo>
+SELECT @MSG AS MSG, @NR_SEQ_LOG AS NR_SEQ_LOG
+--</QUERY>
+`
+	parser, err := ParseMetadata(sql)
+	require.NoError(t, err)
+	qsql, ok := parser.NamedQuerySQL("resumo")
+	require.True(t, ok)
+	out := InjectNamedQueryValues(sql, qsql, "sql", map[string]interface{}{
+		"NR_SEQ_LOG": 864612,
+		"MSG":        "mensagem do log",
+	}, parser.Fields, "sqlserver")
+	assert.Contains(t, out, "SELECT @MSG='mensagem do log'")
+	assert.Contains(t, out, "SELECT @NR_SEQ_LOG=864612")
 }
 
 func TestInjectStepValuesWizardLastStepDeclareNotDuplicated(t *testing.T) {
@@ -273,7 +423,7 @@ SELECT	@NM_ARQUIVO AS Nome,
 		"IC_TAMANHO2": "S",
 		"IC_CONFIRMA": "S",
 	}
-	final, err := InjectStepValues(sql, "Confirmacao", "sql", payload, parser.Fields, "GRID", "sqlserver")
+	final, err := InjectStepValues(sql, "Confirmacao", "sql", payload, parser.Fields, "GRID", "sqlserver", false, false)
 	require.NoError(t, err)
 	declareCount := strings.Count(strings.ToUpper(final), "DECLARE @NM_ARQUIVO")
 	assert.Equal(t, 1, declareCount, "DECLARE must appear once: %s", final)

@@ -2864,6 +2864,37 @@ button.meta-badge.pins:focus-visible {
     background: var(--primary-soft);
 }
 
+.notification-item-debug:hover {
+    color: var(--primary-color);
+    background: var(--primary-soft);
+}
+
+.notification-debug-link {
+    display: inline-flex;
+    align-items: center;
+    margin-top: 8px;
+    padding: 4px 0;
+    border: 0;
+    background: none;
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--primary-color);
+    cursor: pointer;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+}
+
+.notification-debug-link:hover {
+    color: var(--primary-hover, var(--primary-color));
+}
+
+.notification-debug-hint {
+    margin: 8px 0 0;
+    font-size: 0.72rem;
+    line-height: 1.35;
+    color: var(--text-muted);
+}
+
 .notification-item-dismiss:hover {
     color: var(--error-color);
     background: var(--error-soft);
@@ -3146,6 +3177,10 @@ button.meta-badge.pins:focus-visible {
     box-shadow: var(--shadow-lg);
 }
 
+.app-modal--code {
+    width: min(920px, 96vw);
+}
+
 .app-modal-header {
     display: flex;
     align-items: center;
@@ -3160,6 +3195,46 @@ button.meta-badge.pins:focus-visible {
 
 .app-modal-body {
     padding: 8px 18px 12px;
+}
+
+.notification-debug-pre {
+    margin: 0;
+    max-height: min(60vh, 420px);
+    overflow: auto;
+    padding: 12px;
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-muted);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 0.8rem;
+    line-height: 1.45;
+    white-space: pre-wrap;
+    word-break: break-word;
+    color: var(--text-primary);
+}
+
+.notification-debug-cm {
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    overflow: hidden;
+    background: var(--bg-muted);
+}
+
+.notification-debug-cm .CodeMirror {
+    min-height: min(60vh, 420px);
+    height: auto;
+    max-height: min(70vh, 520px);
+    font-size: 0.85rem;
+}
+
+.notification-debug-cm .CodeMirror-scroll {
+    min-height: min(60vh, 420px);
+    max-height: min(70vh, 520px);
+}
+
+.cm-s-default.CodeMirror {
+    background: var(--bg-muted);
+    color: var(--text-primary);
 }
 
 .app-modal-footer {

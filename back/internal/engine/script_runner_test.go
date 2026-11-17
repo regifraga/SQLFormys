@@ -25,8 +25,9 @@ echo "hello world"
 		ResultType: "TEXT",
 		Timeout:    10,
 	}
-	result, err := RunScript(context.Background(), script, modulekind.KindSH, parser, map[string]interface{}{}, "")
+	result, debugArtifact, err := RunScript(context.Background(), script, modulekind.KindSH, parser, map[string]interface{}{}, "")
 	assert.NoError(t, err)
+	assert.Contains(t, debugArtifact, "hello world")
 	assert.Equal(t, "TEXT", result.ResultType)
 	assert.Len(t, result.Rows, 1)
 	assert.Contains(t, result.Rows[0]["stdout"], "hello world")

@@ -312,7 +312,15 @@ After the user fills `NM_ARQUIVO` on step 1, the step 2 tooltip and stepper labe
 
 Use multiple **steps** when a module should collect parameters in stages and optionally run SQL between steps. The UI shows a stepper with **Anterior**, **Próximo**, and **Executar** (on the last step, or on the optional summary screen — see below).
 
-Wrap each step in `--<STEP StepId>` … `--</STEP>`. Each step contains its own `--<PROPERTIES>` block (same field syntax as above). Optional SQL (or script body) between `</PROPERTIES>` and `</STEP>` runs when the user clicks **Próximo** or **Executar** for that step (`POST /api/queries/...?step=StepId`).
+Wrap each step in `--<STEP StepId>` … `--</STEP>`. Each step contains its own `--<PROPERTIES>` block (same field syntax as above). Optional SQL (or script body) between `</PROPERTIES>` and `</STEP>` runs when the user clicks **Próximo** (`POST /api/queries/...?step=StepId`). Each line may be commented with `--` (or `#` in shell modules); the engine strips those prefixes before execution.
+
+Inside a step you can use:
+
+- **Inline SQL** (with or without `--` on every line), with the same features as the main module (`DECLARE`, variable injection, `/*[VAR=VAL]*/` fragments, assignments such as `SELECT @MSG = ...`).
+- **`QUERY(Nome)`** — run a named `--<QUERY Nome>` block from the same file.
+- **`--<QUERY Nome>` … `--</QUERY>`** nested in the step — registers that query for `QUERY(Nome)` / `SUMMARY QUERY(Nome)` and uses it as the step body when there is no other SQL after the block.
+
+Variables assigned in step SQL (for example `@MSG`) are returned in the result set when possible and can be referenced in wizard labels via `{{MSG}}`, or sent in the payload for the next request (summary named query or final execute).
 
 The guided UI and step execution run **only** when the script contains a `--<WIZARD>` … `--</WIZARD>` block. `STEP` blocks alone do **not** enable the wizard (those modules keep a single form and **Executar**).
 
@@ -340,7 +348,7 @@ SELECT @NM_ARQUIVO AS Arquivo
 
 #### Optional summary step (`SUMMARY`)
 
-Only when explicitly requested, add a `SUMMARY` line inside `--<WIZARD>`. The UI then adds a **final** screen (after all real steps) with a table of field **labels** and friendly values for review. **Executar** appears only on that screen; **Próximo** on the last real step advances to the summary **without** running that step’s SQL (intermediate steps still run SQL on **Próximo** as usual). Execution uses the same `step=` as the last real step.
+Only when explicitly requested, add a `SUMMARY` line inside `--<WIZARD>`. The UI then adds a **final** screen (after all real steps) with a table of field **labels** and friendly values for review. **Executar** appears only on that screen. **Próximo** on **every** step—including the last real step—runs that step’s SQL when the step has a query body, then advances (to the summary on the last step). **Executar** on the summary calls `POST /api/queries/...?step=LastStepId&wizardFinal=1`, which runs the SQL **outside** the `STEP` blocks (module residual), not the last step body again.
 
 ```sql
 --<WIZARD>
@@ -373,7 +381,7 @@ Rules:
 
 - Field names must be **unique across all steps**.
 - `--RESULT_TYPE=` inside a step overrides the module default for that step only.
-- On the **last** step, if the step has no SQL body, the engine runs the SQL **outside** the `STEP` blocks (same as a classic module).
+- On the **last** step, if the step has no SQL body, the engine runs the SQL **outside** the `STEP` blocks (same as a classic module). With **SUMMARY**, final **Executar** always uses that residual SQL (`wizardFinal=1`), even when the last step has its own query (which already ran on **Próximo**).
 - Modules with **no** `--<WIZARD>` block behave exactly as before (single form + **Executar**), even if they contain `STEP` blocks.
 - Modules with **no** `STEP` blocks are always classic modules.
 - Shell/PowerShell modules use `#` instead of `--` for the same tags.

@@ -177,7 +177,7 @@ func (s *queryService) GetMetadata(basePath, queryPath, kind string) (domain.Met
 	return resp, nil
 }
 
-func (s *queryService) ExecuteQuery(ctx context.Context, basePath, queryPath, kind, stepID string, payload map[string]interface{}, defaultDriver, defaultDsn string) (domain.QueryResult, string, string, error) {
+func (s *queryService) ExecuteQuery(ctx context.Context, basePath, queryPath, kind, stepID string, wizardFinalExecute bool, payload map[string]interface{}, defaultDriver, defaultDsn string) (domain.QueryResult, string, string, error) {
 	absPath, resolvedKind, err := modulekind.ResolveModule(basePath, queryPath, kind)
 	if err != nil {
 		return domain.QueryResult{}, "", "", err
@@ -213,7 +213,7 @@ func (s *queryService) ExecuteQuery(ctx context.Context, basePath, queryPath, ki
 	}
 	ttl := parser.CacheTTL
 	if ttl <= 0 {
-		result, sql, err := s.executeQueryBody(ctx, absPath, queryPath, resolvedKind, stepID, expanded, parser, payload, defaultDriver, defaultDsn)
+		result, sql, err := s.executeQueryBody(ctx, absPath, queryPath, resolvedKind, stepID, wizardFinalExecute, expanded, parser, payload, defaultDriver, defaultDsn)
 		if err == nil {
 			s.logQueryCache(cache.StatusBypass, queryPath, cacheTarget, 0, len(result.Rows))
 		}
@@ -221,7 +221,7 @@ func (s *queryService) ExecuteQuery(ctx context.Context, basePath, queryPath, ki
 	}
 	key := s.cacheKey(queryPath, resolvedKind, expanded, cacheTarget, defaultDriver, parser, payload)
 	result, sql, status, err := s.results.DoQuery(key, ttl, func() (domain.QueryResult, string, error) {
-		return s.executeQueryBody(ctx, absPath, queryPath, resolvedKind, stepID, expanded, parser, payload, defaultDriver, defaultDsn)
+		return s.executeQueryBody(ctx, absPath, queryPath, resolvedKind, stepID, wizardFinalExecute, expanded, parser, payload, defaultDriver, defaultDsn)
 	})
 	if err == nil {
 		s.logQueryCache(status, queryPath, cacheTarget, ttl, len(result.Rows))
@@ -229,18 +229,18 @@ func (s *queryService) ExecuteQuery(ctx context.Context, basePath, queryPath, ki
 	return result, sql, status.String(), err
 }
 
-func (s *queryService) executeQueryBody(ctx context.Context, absPath, queryPath, resolvedKind, stepID, expanded string, parser *engine.SQLParser, payload map[string]interface{}, defaultDriver, defaultDsn string) (domain.QueryResult, string, error) {
+func (s *queryService) executeQueryBody(ctx context.Context, absPath, queryPath, resolvedKind, stepID string, wizardFinalExecute bool, expanded string, parser *engine.SQLParser, payload map[string]interface{}, defaultDriver, defaultDsn string) (domain.QueryResult, string, error) {
 	if resolvedKind != modulekind.KindSQL {
 		if parser.HasWizard() {
-			result, runErr := engine.RunScriptStep(ctx, absPath, resolvedKind, parser, payload, stepID, expanded)
+			result, debugArtifact, runErr := engine.RunScriptStep(ctx, absPath, resolvedKind, parser, payload, stepID, expanded)
 			if runErr != nil {
-				return result, "", runErr
+				return result, debugArtifact, runErr
 			}
 			result.ResultType = parser.ResultTypeForStep(stepID)
-			return result, "", nil
+			return result, debugArtifact, nil
 		}
-		result, runErr := engine.RunScript(ctx, absPath, resolvedKind, parser, payload, expanded)
-		return result, "", runErr
+		result, debugArtifact, runErr := engine.RunScript(ctx, absPath, resolvedKind, parser, payload, expanded)
+		return result, debugArtifact, runErr
 	}
 
 	if parser.HasWizard() {
@@ -248,7 +248,7 @@ func (s *queryService) executeQueryBody(ctx context.Context, absPath, queryPath,
 		if stepID == "" {
 			stepID = parser.LastStepID()
 		}
-		finalSQL, err := engine.InjectStepValues(expanded, stepID, resolvedKind, payload, parser.Fields, parser.ResultType, defaultDriver)
+		finalSQL, err := engine.InjectStepValues(expanded, stepID, resolvedKind, payload, parser.Fields, parser.ResultType, defaultDriver, wizardFinalExecute, parser.WizardSummary)
 		if err != nil {
 			return domain.QueryResult{}, "", err
 		}

@@ -1,6 +1,8 @@
 package cache
 
 import (
+	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -43,6 +45,19 @@ func TestStoreLRU(t *testing.T) {
 	assert.False(t, okA)
 	assert.True(t, okB)
 	assert.True(t, okC)
+}
+
+func TestDoQueryPreservesSQLOnFailure(t *testing.T) {
+	s := NewStore()
+	ttl := time.Minute
+	wantSQL := "SELECT 1"
+	_, sql, status, err := s.DoQuery("fail-key", ttl, func() (domain.QueryResult, string, error) {
+		return domain.QueryResult{}, wantSQL, fmt.Errorf("boom")
+	})
+	require.Error(t, err)
+	assert.Equal(t, wantSQL, sql)
+	assert.Equal(t, StatusBypass, status)
+	assert.False(t, errors.As(err, new(*ExecError)))
 }
 
 func TestBuildKeyStablePayloadOrder(t *testing.T) {

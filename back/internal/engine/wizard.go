@@ -11,13 +11,14 @@ import (
 
 // StepDefinition holds parsed content for one wizard step.
 type StepDefinition struct {
-	ID              string
-	Label           string
-	Fields          []domain.Field
-	Body            string
-	PropertiesBlock string
-	ResultType      string
-	HasQuery        bool
+	ID                 string
+	Label              string
+	Fields             []domain.Field
+	Body               string
+	PropertiesBlock    string
+	ResultType         string
+	HasQuery           bool
+	NestedNamedQueries map[string]string
 }
 
 func stepBlockRegexFor(prefix string) *regexp.Regexp {
@@ -315,6 +316,79 @@ func stepResultTypeTagRegex(prefix string) *regexp.Regexp {
 	return regexp.MustCompile(`(?m)^\s*` + regexp.QuoteMeta(prefix) + `\s*RESULT_TYPE=(.*)$`)
 }
 
+var sqlAssignVarRegex = regexp.MustCompile(`(?i)@\s*([A-Za-z][A-Za-z0-9_]*)\s*=`)
+var sqlDeclareVarRegex = regexp.MustCompile(`(?i)@\s*([A-Za-z][A-Za-z0-9_]*)\s+`)
+
+// parseStepBodyContent normalizes STEP body SQL (comment prefix strip), optional nested QUERY blocks.
+func parseStepBodyContent(rest, linePrefix string) (body string, nested map[string]string, err error) {
+	nested = make(map[string]string)
+	rest = strings.TrimSpace(rest)
+	if rest == "" {
+		return "", nested, nil
+	}
+	re := namedQueryBlockRegexFor(linePrefix)
+	matches := re.FindAllStringSubmatch(rest, -1)
+	if len(matches) > 1 {
+		return "", nil, fmt.Errorf("step com mais de um bloco QUERY")
+	}
+	leftover := rest
+	if len(matches) == 1 {
+		m := matches[0]
+		if len(m) < 3 {
+			return "", nil, fmt.Errorf("bloco QUERY inválido no step")
+		}
+		name := strings.TrimSpace(m[1])
+		sql := normalizeNamedQueryBody(m[2], linePrefix)
+		if sql == "" {
+			return "", nil, fmt.Errorf("bloco QUERY %q vazio no step", name)
+		}
+		nested[name] = sql
+		leftover = strings.TrimSpace(re.ReplaceAllString(rest, ""))
+	}
+	if leftover != "" {
+		body = normalizeNamedQueryBody(leftover, linePrefix)
+	} else if len(matches) == 1 {
+		body = nested[strings.TrimSpace(matches[0][1])]
+	}
+	body = strings.TrimSpace(body)
+	return body, nested, nil
+}
+
+func stepBodyHasExecutableQuery(body, linePrefix string) bool {
+	body = strings.TrimSpace(body)
+	if body == "" {
+		return false
+	}
+	if _, ok := QueryReferenceFromBody(body, linePrefix); ok {
+		return true
+	}
+	return true
+}
+
+func mergeStepNamedQueries(into map[string]string, nested map[string]string, stepID string) error {
+	if len(nested) == 0 {
+		return nil
+	}
+	if into == nil {
+		return fmt.Errorf("merge de QUERY do step %s sem mapa de destino", stepID)
+	}
+	for name, sql := range nested {
+		for k, v := range into {
+			if strings.EqualFold(k, name) && v != sql {
+				return fmt.Errorf("bloco QUERY duplicado %q no step %s", name, stepID)
+			}
+		}
+		if existing, ok := into[name]; ok {
+			if existing != sql {
+				return fmt.Errorf("bloco QUERY duplicado %q no step %s", name, stepID)
+			}
+			continue
+		}
+		into[name] = sql
+	}
+	return nil
+}
+
 func parseStepBlocks(content string, d metadataDialect, moduleDefaultResult string) ([]StepDefinition, error) {
 	re := stepBlockRegexFor(d.linePrefix)
 	matches := re.FindAllStringSubmatch(content, -1)
@@ -345,12 +419,17 @@ func parseStepBlocks(content string, d metadataDialect, moduleDefaultResult stri
 		}
 
 		rest := d.propertiesRegex.ReplaceAllString(inner, "")
-		body := strings.TrimSpace(rest)
+		rest = strings.TrimSpace(rest)
 		rt := moduleDefaultResult
-		if rtMatch := stepResultTypeTagRegex(d.linePrefix).FindStringSubmatch(body); len(rtMatch) > 1 {
+		if rtMatch := stepResultTypeTagRegex(d.linePrefix).FindStringSubmatch(rest); len(rtMatch) > 1 {
 			rt = NormalizeResultType(rtMatch[1])
-			body = stepResultTypeTagRegex(d.linePrefix).ReplaceAllString(body, "")
-			body = strings.TrimSpace(body)
+			rest = stepResultTypeTagRegex(d.linePrefix).ReplaceAllString(rest, "")
+			rest = strings.TrimSpace(rest)
+		}
+
+		body, nestedQueries, bodyErr := parseStepBodyContent(rest, d.linePrefix)
+		if bodyErr != nil {
+			return nil, fmt.Errorf("step %s: %w", stepID, bodyErr)
 		}
 
 		label := stepID
@@ -358,16 +437,17 @@ func parseStepBlocks(content string, d metadataDialect, moduleDefaultResult stri
 			label = l
 		}
 
-		hasQuery := strings.TrimSpace(body) != ""
+		hasQuery := stepBodyHasExecutableQuery(body, d.linePrefix)
 		orderInFile = append(orderInFile, stepID)
 		byID[stepID] = StepDefinition{
-			ID:              stepID,
-			Label:           label,
-			Fields:          fields,
-			Body:            body,
-			PropertiesBlock: propertiesBlock,
-			ResultType:      rt,
-			HasQuery:        hasQuery,
+			ID:                 stepID,
+			Label:              label,
+			Fields:             fields,
+			Body:               body,
+			PropertiesBlock:    propertiesBlock,
+			ResultType:         rt,
+			HasQuery:           hasQuery,
+			NestedNamedQueries: nestedQueries,
 		}
 	}
 
@@ -498,24 +578,161 @@ func StripAllStepBlocks(content, linePrefix string) string {
 	return stepBlockRegexFor(linePrefix).ReplaceAllString(content, "")
 }
 
-func extractResidualSQL(content string, d metadataDialect) string {
+func residualSQLBeforeDeclareStrip(content string, d metadataDialect) string {
 	out := content
 	out = StripLookupBlocks(out)
 	out = StripNamedQueryBlocks(out, d.linePrefix)
 	out = StripWizardBlocks(out, d.linePrefix)
 	out = StripAllStepBlocks(out, d.linePrefix)
 	out = d.propertiesRegex.ReplaceAllString(out, "")
-	// Strip header tags
 	for _, tag := range []string{"SERVER", "TIMEOUT", "DESCRIPTION", "EXECUTE_MODE", "RESULT_TYPE", "INCLUDE", "CACHE"} {
 		out = tagRegex(d.linePrefix, tag).ReplaceAllString(out, "")
 	}
-	out = StripConfirmDirectives(out, d.linePrefix)
+	return StripConfirmDirectives(out, d.linePrefix)
+}
+
+func extractResidualSQL(content string, d metadataDialect) string {
+	out := residualSQLBeforeDeclareStrip(content, d)
 	out = stripSqlServerDeclareBlock(out)
 	return strings.TrimSpace(out)
 }
 
+func varsFromSqlServerDeclare(declareBlock string) []string {
+	if strings.TrimSpace(declareBlock) == "" {
+		return nil
+	}
+	seen := make(map[string]bool)
+	var out []string
+	for _, m := range sqlDeclareVarRegex.FindAllStringSubmatch(declareBlock, -1) {
+		if len(m) < 2 {
+			continue
+		}
+		name := m[1]
+		up := strings.ToUpper(name)
+		if seen[up] {
+			continue
+		}
+		seen[up] = true
+		out = append(out, name)
+	}
+	return out
+}
+
+func fieldNamesSet(fields []domain.Field) map[string]bool {
+	out := make(map[string]bool, len(fields))
+	for _, f := range fields {
+		out[strings.ToUpper(f.Field)] = true
+	}
+	return out
+}
+
+func supplementInjectionFromDeclare(declareBlock string, values map[string]interface{}, fields []domain.Field, injection string) string {
+	declVars := varsFromSqlServerDeclare(declareBlock)
+	if len(declVars) == 0 {
+		return injection
+	}
+	fieldSet := fieldNamesSet(fields)
+	var extra []string
+	for _, varName := range declVars {
+		up := strings.ToUpper(varName)
+		if fieldSet[up] {
+			continue
+		}
+		val, exists := values[varName]
+		if !exists {
+			for k, v := range values {
+				if strings.EqualFold(k, varName) {
+					val = v
+					exists = true
+					break
+				}
+			}
+		}
+		if !exists || val == nil {
+			continue
+		}
+		valStr := fmt.Sprintf("%v", val)
+		if valStr == "" {
+			continue
+		}
+		if _, err := strconv.ParseFloat(valStr, 64); err == nil && !strings.Contains(strings.ToLower(valStr), "e") {
+			extra = append(extra, fmt.Sprintf("SELECT @%s=%s", varName, valStr))
+		} else {
+			escaped := strings.ReplaceAll(valStr, "'", "''")
+			extra = append(extra, fmt.Sprintf("SELECT @%s='%s'", varName, escaped))
+		}
+	}
+	if len(extra) == 0 {
+		return injection
+	}
+	if injection == "" {
+		return strings.Join(extra, "\n")
+	}
+	return injection + "\n" + strings.Join(extra, "\n")
+}
+
+func assignedVarsInSQLBody(body string) []string {
+	seen := make(map[string]bool)
+	var out []string
+	for _, m := range sqlAssignVarRegex.FindAllStringSubmatch(body, -1) {
+		if len(m) < 2 {
+			continue
+		}
+		name := m[1]
+		up := strings.ToUpper(name)
+		if seen[up] {
+			continue
+		}
+		seen[up] = true
+		out = append(out, name)
+	}
+	return out
+}
+
+func appendAssignedVariableSelect(body string) string {
+	body = strings.TrimSpace(body)
+	if body == "" {
+		return body
+	}
+	vars := assignedVarsInSQLBody(body)
+	if len(vars) == 0 {
+		return body
+	}
+	proj := make([]string, 0, len(vars))
+	for _, v := range vars {
+		proj = append(proj, fmt.Sprintf("@%s AS %s", v, v))
+	}
+	return body + "\nSELECT " + strings.Join(proj, ", ")
+}
+
+func assembleWizardStepSQL(fileContent, body, moduleKind string, values map[string]interface{}, fields []domain.Field, driver string, d metadataDialect, appendAssignSelect bool) string {
+	body = applyConditionalComments(body, values, fields)
+	if strings.TrimSpace(body) == "" {
+		return ""
+	}
+	if appendAssignSelect {
+		body = appendAssignedVariableSelect(body)
+	}
+	if isPostgresDriver(driver) {
+		return body
+	}
+	declareBlock := extractSqlServerDeclareBlock(residualSQLBeforeDeclareStrip(fileContent, d))
+	prefixes := collectFieldPrefixesFromContent(fileContent, d)
+	injectionBlock := buildInjectionBlockWithPrefixes(values, fields, "", prefixes)
+	injectionBlock = supplementInjectionFromDeclare(declareBlock, values, fields, injectionBlock)
+	var parts []string
+	if declareBlock != "" {
+		parts = append(parts, declareBlock)
+	}
+	if injectionBlock != "" {
+		parts = append(parts, injectionBlock)
+	}
+	parts = append(parts, body)
+	return strings.Join(parts, "\n")
+}
+
 // InjectStepValues prepares SQL for executing a single wizard step.
-func InjectStepValues(fileContent, stepID, moduleKind string, values map[string]interface{}, fields []domain.Field, moduleDefaultResult, driver string) (string, error) {
+func InjectStepValues(fileContent, stepID, moduleKind string, values map[string]interface{}, fields []domain.Field, moduleDefaultResult, driver string, wizardFinalExecute, wizardHasSummary bool) (string, error) {
 	d := dialectForKind(moduleKind)
 
 	parserSteps, err := parseStepBlocks(fileContent, d, moduleDefaultResult)
@@ -535,16 +752,11 @@ func InjectStepValues(fileContent, stepID, moduleKind string, values map[string]
 
 	isLast := len(parserSteps) > 0 && strings.EqualFold(parserSteps[len(parserSteps)-1].ID, stepID)
 
-	sqlContent := StripNamedQueryBlocks(StripLookupBlocks(fileContent), d.linePrefix)
-	sqlContent = StripWizardBlocks(sqlContent, d.linePrefix)
-	sqlContent = applyConditionalComments(sqlContent, values, fields)
-
-	// Remove all STEP blocks except we rebuild active step SQL manually.
-	sqlContent = StripAllStepBlocks(sqlContent, d.linePrefix)
-	sqlContent = d.propertiesRegex.ReplaceAllString(sqlContent, "")
-
+	useResidual := wizardFinalExecute && wizardHasSummary && isLast
 	body := strings.TrimSpace(step.Body)
-	if body == "" && isLast {
+	if useResidual {
+		body = extractResidualSQL(fileContent, d)
+	} else if body == "" && isLast {
 		body = extractResidualSQL(fileContent, d)
 	}
 	if body == "" {
@@ -560,30 +772,20 @@ func InjectStepValues(fileContent, stepID, moduleKind string, values map[string]
 		return "", nil
 	}
 
-	prefixes := collectFieldPrefixesFromContent(fileContent, d)
-	injectionBlock := buildInjectionBlockWithPrefixes(values, fields, "", prefixes)
-
-	var execSQL string
-	if isPostgresDriver(driver) {
-		execSQL = body
-	} else {
-		declareBlock := extractSqlServerDeclareBlock(fileContent)
-		var parts []string
-		if declareBlock != "" {
-			parts = append(parts, declareBlock)
-		}
-		if injectionBlock != "" {
-			parts = append(parts, injectionBlock)
-		}
-		parts = append(parts, body)
-		execSQL = strings.Join(parts, "\n")
-	}
-
-	return execSQL, nil
+	appendSelect := !useResidual
+	return assembleWizardStepSQL(fileContent, body, moduleKind, values, fields, driver, d, appendSelect), nil
 }
 
 func queryParserFromContent(fileContent string, d metadataDialect) *SQLParser {
 	named, _ := ParseNamedQueryBlocks(fileContent, d.linePrefix)
+	if named == nil {
+		named = make(map[string]string)
+	}
+	if steps, err := parseStepBlocks(fileContent, d, "GRID"); err == nil {
+		for _, st := range steps {
+			_ = mergeStepNamedQueries(named, st.NestedNamedQueries, st.ID)
+		}
+	}
 	p := &SQLParser{NamedQueries: named, ModuleQueryRef: parseModuleQueryDirective(fileContent, d.linePrefix)}
 	if rtMatch := d.resultTypeRegex.FindStringSubmatch(fileContent); len(rtMatch) > 1 {
 		_, p.ResultTypeQueryRef = parseResultTypeAndQueryRef(rtMatch[1])

@@ -55,6 +55,7 @@ let mermaidLibInitialized = false;
 let currentWizard = null;
 let wizardStepIndex = 0;
 let wizardStepResults = {};
+let wizardStepRuntimeValues = {};
 let wizardStepPanes = new Map();
 let wizardResultStepLabel = '';
 let wizardNavBusy = false;
@@ -510,13 +511,16 @@ function queriesApiUrl(queryPath, kind) {
     return `${API_BASE_URL}/queries/${queryPath}${moduleKindQueryParam(kind)}`;
 }
 
-function queriesExecuteUrl(queryPath, kind, stepId = '', namedQuery = '') {
+function queriesExecuteUrl(queryPath, kind, stepId = '', namedQuery = '', wizardFinal = false) {
     let url = queriesApiUrl(queryPath, kind);
     if (stepId) {
         url += `&step=${encodeURIComponent(stepId)}`;
     }
     if (namedQuery) {
         url += `&namedQuery=${encodeURIComponent(namedQuery)}`;
+    }
+    if (wizardFinal) {
+        url += '&wizardFinal=1';
     }
     return url;
 }
@@ -574,6 +578,7 @@ function resetWizardState() {
     currentWizard = null;
     wizardStepIndex = 0;
     wizardStepResults = {};
+    wizardStepRuntimeValues = {};
     wizardStepPanes = new Map();
     wizardResultStepLabel = '';
     if (wizardStepperEl) {
@@ -790,6 +795,16 @@ async function runWizardStepQuery(stepMeta) {
             data: currentQueryResult,
             duration: null
         };
+        const row = currentQueryResult.rows?.[0];
+        if (row && typeof row === 'object') {
+            Object.keys(row).forEach((key) => {
+                const val = row[key];
+                if (val !== undefined && val !== null) {
+                    wizardStepRuntimeValues[key] = val;
+                }
+            });
+            refreshInterpolatedTexts();
+        }
     }
 }
 
@@ -804,9 +819,7 @@ async function handleWizardNext() {
     if (btnWizardNext) btnWizardNext.disabled = true;
 
     try {
-        const advancingToSummary = hasWizardSummaryStep()
-            && wizardStepIndex === currentWizard.steps.length - 1;
-        if (step.hasQuery && !advancingToSummary) {
+        if (step.hasQuery) {
             await runWizardStepQuery(step);
         }
         if (wizardStepIndex < wizardUiStepCount() - 1) {
@@ -893,6 +906,7 @@ async function loadFormFields(queryPath, moduleTitle, moduleKind = 'sql') {
         currentConfirm = data.confirm || null;
         wizardStepIndex = 0;
         wizardStepResults = {};
+        wizardStepRuntimeValues = {};
         wizardResultStepLabel = '';
 
         resetResultDocumentView();
@@ -928,6 +942,27 @@ async function loadFormFields(queryPath, moduleTitle, moduleKind = 'sql') {
     }
 }
 
+function createApiError(errorText, fallbackMessage) {
+    let errorMessage = errorText;
+    let debugQuery;
+    try {
+        const errorJson = JSON.parse(errorText);
+        if (errorJson.error) {
+            errorMessage = errorJson.error;
+        }
+        if (errorJson.debug_query) {
+            debugQuery = errorJson.debug_query;
+        }
+    } catch (_e) {
+        // mantém texto puro
+    }
+    const err = new Error(errorMessage || fallbackMessage);
+    if (debugQuery) {
+        err.debugQuery = debugQuery;
+    }
+    return err;
+}
+
 async function executeQuery(payload, options = {}) {
     if (isFormExecutionBusy()) {
         return;
@@ -935,6 +970,7 @@ async function executeQuery(payload, options = {}) {
     const skipExecuteLabel = options.skipButtonLock === true;
     const stepId = options.stepId || '';
     const stepLabel = options.stepLabel || '';
+    const wizardFinal = options.wizardFinal === true;
 
     if (!skipExecuteLabel && btnExecute) {
         formExecuteButtonLabel = btnExecute.innerText || 'Executar';
@@ -959,7 +995,7 @@ async function executeQuery(payload, options = {}) {
     const startTime = performance.now();
 
     try {
-        const response = await apiFetch(queriesExecuteUrl(currentQueryPath, currentQueryKind, stepId), {
+        const response = await apiFetch(queriesExecuteUrl(currentQueryPath, currentQueryKind, stepId, '', wizardFinal), {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
@@ -970,16 +1006,7 @@ async function executeQuery(payload, options = {}) {
 
         if (!response.ok) {
             const errorText = await response.text();
-            let errorMessage = errorText;
-            try {
-                const errorJson = JSON.parse(errorText);
-                if (errorJson.error) {
-                    errorMessage = errorJson.error;
-                }
-            } catch (e) {
-                // Se não for JSON, mantém o texto puro
-            }
-            throw new Error(errorMessage || 'Erro ao processar a requisição');
+            throw createApiError(errorText, 'Erro ao processar a requisição');
         }
 
         const result = await response.json();
@@ -1003,7 +1030,11 @@ async function executeQuery(payload, options = {}) {
         }
         console.error(error);
         const errMsg = error.message || 'Erro ao processar a requisição';
-        showToast('Erro de Execução', errMsg, 'error', { context: currentQueryPath || undefined });
+        showToast('Erro de Execução', errMsg, 'error', {
+            context: currentQueryPath || undefined,
+            debugQuery: error.debugQuery,
+            debugKind: normalizeModuleKind(currentQueryKind),
+        });
         throw error;
     } finally {
         endFormExecution();
@@ -1352,7 +1383,13 @@ function formatDateFieldValue(field, value) {
 const INTERPOLATE_TOKEN_RE = /\{\{\s*([A-Za-z][A-Za-z0-9_]*)\s*\}\}/g;
 
 function getKnownFormFieldNames() {
-    return (currentFields || []).map(field => field.field);
+    const names = (currentFields || []).map(field => field.field);
+    Object.keys(wizardStepRuntimeValues || {}).forEach((key) => {
+        if (!names.includes(key)) {
+            names.push(key);
+        }
+    });
+    return names;
 }
 
 function interpolateTemplate(text, values, knownFields) {
@@ -1489,12 +1526,7 @@ async function fetchNamedQueryPreview(queryName) {
     );
     if (!response.ok) {
         const errorText = await response.text();
-        let errorMessage = errorText;
-        try {
-            const errorJson = JSON.parse(errorText);
-            if (errorJson.error) errorMessage = errorJson.error;
-        } catch (_e) { /* keep raw */ }
-        throw new Error(errorMessage || 'Falha ao carregar preview da QUERY');
+        throw createApiError(errorText, 'Falha ao carregar preview da QUERY');
     }
     return response.json();
 }
@@ -1621,6 +1653,15 @@ function collectFormValues(includeEmpty = false) {
         const val = resolveContextFieldValue(field.contextKey);
         if (val !== '' || field.required || includeEmpty) {
             payload[field.field] = val;
+        }
+    });
+
+    const runtime = wizardStepRuntimeValues || {};
+    Object.keys(runtime).forEach((key) => {
+        const val = runtime[key];
+        if (val === undefined || val === null) return;
+        if (includeEmpty || String(val).trim() !== '') {
+            payload[key] = val;
         }
     });
 
@@ -1948,16 +1989,7 @@ async function loadLookupOptions(select) {
 
         if (!response.ok) {
             const errorText = await response.text();
-            let errorMessage = errorText;
-            try {
-                const errorJson = JSON.parse(errorText);
-                if (errorJson.error) {
-                    errorMessage = errorJson.error;
-                }
-            } catch (e) {
-                // keep raw text
-            }
-            throw new Error(errorMessage || 'Falha ao carregar opções do lookup');
+            throw createApiError(errorText, 'Falha ao carregar opções do lookup');
         }
 
         const result = await response.json();
@@ -2012,7 +2044,11 @@ async function loadLookupOptions(select) {
         }
     } catch (error) {
         console.error(error);
-        showToast('Erro', error.message || 'Não foi possível carregar as opções do lookup.', 'error');
+        showToast('Erro', error.message || 'Não foi possível carregar as opções do lookup.', 'error', {
+            context: currentQueryPath || undefined,
+            debugQuery: error.debugQuery,
+            debugKind: normalizeModuleKind(currentQueryKind),
+        });
     } finally {
         delete select.dataset.lookupLoading;
     }
@@ -2986,7 +3022,12 @@ async function handleExecute() {
             step = getLastWizardRealStepMeta();
         }
         if (!step) return;
-        executeQuery(collectFormValues(false), { stepId: step.id, stepLabel: wizardStepDisplayLabel(step) }).then(() => {
+        const wizardFinal = isOnWizardSummaryStep() && hasWizardSummaryStep();
+        executeQuery(collectFormValues(false), {
+            stepId: step.id,
+            stepLabel: wizardStepDisplayLabel(step),
+            wizardFinal
+        }).then(() => {
             wizardStepResults[step.id] = { data: currentQueryResult, duration: null };
         }).catch(() => {});
         return;

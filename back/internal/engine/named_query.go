@@ -222,22 +222,6 @@ func ExpandQueryReferences(sqlContent string, p *SQLParser, linePrefix string) (
 
 // InjectNamedQueryValues prepares a named QUERY block like the main module query.
 func InjectNamedQueryValues(fileContent, querySQL, moduleKind string, values map[string]interface{}, fields []domain.Field, driver string) string {
-	querySQL = applyConditionalComments(querySQL, values, fields)
-	if isPostgresDriver(driver) {
-		return querySQL
-	}
-
 	d := dialectForKind(moduleKind)
-	declareBlock := extractSqlServerDeclareBlock(fileContent)
-	injections := buildInjectionBlockWithPrefixes(values, fields, "", collectFieldPrefixesFromContent(fileContent, d))
-
-	var parts []string
-	if declareBlock != "" {
-		parts = append(parts, declareBlock)
-	}
-	if injections != "" {
-		parts = append(parts, injections)
-	}
-	parts = append(parts, querySQL)
-	return strings.Join(parts, "\n")
+	return assembleWizardStepSQL(fileContent, querySQL, moduleKind, values, fields, driver, d, false)
 }
