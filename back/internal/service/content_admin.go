@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"sqlformys/internal/filesafe"
+	"sqlformys/internal/library"
 	"sqlformys/internal/modulekind"
 )
 
@@ -64,7 +65,7 @@ func (c *ContentAdmin) WriteSQL(basePath, rel, kind, content string) error {
 	return c.WriteModule(basePath, rel, kind, content)
 }
 
-func (c *ContentAdmin) CreateFolder(basePath, rel string) error {
+func (c *ContentAdmin) CreateFolder(basePath, rel string, asLibrary bool) error {
 	target, err := filesafe.ResolveUnderBase(basePath, rel)
 	if err != nil {
 		return err
@@ -74,9 +75,24 @@ func (c *ContentAdmin) CreateFolder(basePath, rel string) error {
 		return fmt.Errorf("já existe um arquivo com este nome")
 	}
 	if err == nil {
+		if asLibrary {
+			marker := filepath.Join(target, library.MarkerFileName)
+			if _, statErr := os.Stat(marker); os.IsNotExist(statErr) {
+				if writeErr := os.WriteFile(marker, []byte{}, 0o644); writeErr != nil {
+					return writeErr
+				}
+			}
+		}
 		return nil
 	}
-	return os.MkdirAll(target, 0o755)
+	if err := os.MkdirAll(target, 0o755); err != nil {
+		return err
+	}
+	if asLibrary {
+		marker := filepath.Join(target, library.MarkerFileName)
+		return os.WriteFile(marker, []byte{}, 0o644)
+	}
+	return nil
 }
 
 func (c *ContentAdmin) RenameFolder(basePath, fromRel, toRel string) error {

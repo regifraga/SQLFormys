@@ -36,9 +36,10 @@ type WizardMetadata struct {
 // TreeNode represents a hierarchical node (folder or module) in the queries directory tree
 type TreeNode struct {
 	Name     string     `json:"name"`
-	Type     string     `json:"type"`           // "folder" ou "module"
-	Kind     string     `json:"kind,omitempty"` // sql, sh, ps1 — apenas para modules
-	Path     string     `json:"path,omitempty"` // Caminho relativo para modules, ex: "Financeiro/Relatorios/fechamento"
+	Type     string     `json:"type"`              // "folder" ou "module"
+	Kind     string     `json:"kind,omitempty"`    // sql, sh, ps1 — apenas para modules
+	Path     string     `json:"path,omitempty"`    // Caminho relativo para modules, ex: "Financeiro/Relatorios/fechamento"
+	Library  bool       `json:"library,omitempty"` // pasta Biblioteca (fragmentos INCLUDE)
 	Children []TreeNode `json:"children,omitempty"`
 }
 
@@ -80,7 +81,7 @@ type LookupResult struct {
 
 // DynamicQueryService defines the business logic for dynamic SQL execution
 type DynamicQueryService interface {
-	ListProjects(basePath string) ([]TreeNode, error)
+	ListProjects(basePath string, includeLibraries bool) ([]TreeNode, error)
 	GetMetadata(basePath, queryPath, kind string) (MetadataResponse, error)
 	ExecuteQuery(ctx context.Context, basePath, queryPath, kind, stepID string, payload map[string]interface{}, defaultDriver, defaultDsn string) (QueryResult, string, error)
 	ExecuteLookup(ctx context.Context, basePath, queryPath, kind, lookupName, lookupField string, payload map[string]interface{}, defaultDriver, defaultDsn string) (LookupResult, string, error)

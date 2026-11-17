@@ -13,6 +13,7 @@ import (
 	"sqlformys/internal/config"
 	"sqlformys/internal/domain"
 	"sqlformys/internal/engine"
+	"sqlformys/internal/library"
 	"sqlformys/internal/modulekind"
 )
 
@@ -35,11 +36,30 @@ type ProjectsResponse struct {
 	ProductName string            `json:"productName,omitempty"`
 }
 
+func (h *QueryHandler) requestIsAdmin(r *http.Request) bool {
+	id, ok := auth.IdentityFromRequest(r)
+	if !ok || id.Username == "" || h.accounts == nil {
+		return false
+	}
+	return h.accounts.IsAdmin(id.Username)
+}
+
+func (h *QueryHandler) denyLibraryModuleAccess(w http.ResponseWriter, r *http.Request, moduleRel string) bool {
+	if !library.IsLibraryModule(h.cfg.QueriesBasePath, moduleRel) {
+		return false
+	}
+	if h.requestIsAdmin(r) {
+		return false
+	}
+	respondWithError(w, http.StatusNotFound, "módulo não encontrado")
+	return true
+}
+
 func (h *QueryHandler) ListProjects(w http.ResponseWriter, r *http.Request) {
 	// Base path onde as queries estão armazenadas localmente (configurável via env)
 	basePath := h.cfg.QueriesBasePath
 
-	projects, err := h.svc.ListProjects(basePath)
+	projects, err := h.svc.ListProjects(basePath, h.requestIsAdmin(r))
 	if err != nil {
 		log.Printf("ERROR: Falha ao listar projetos no diretório %s: %v", basePath, err)
 		respondWithError(w, http.StatusInternalServerError, err.Error())
@@ -62,6 +82,9 @@ func (h *QueryHandler) GetMetadata(w http.ResponseWriter, r *http.Request) {
 		respondWithError(w, http.StatusBadRequest, "O parâmetro filepath é obrigatório")
 		return
 	}
+	if h.denyLibraryModuleAccess(w, r, filepathParam) {
+		return
+	}
 
 	kind := modulekind.NormalizeKind(r.URL.Query().Get("kind"))
 	metadata, err := h.svc.GetMetadata(basePath, filepathParam, kind)
@@ -81,6 +104,9 @@ func (h *QueryHandler) ExecuteQuery(w http.ResponseWriter, r *http.Request) {
 
 	if filepathParam == "" {
 		respondWithError(w, http.StatusBadRequest, "O parâmetro filepath é obrigatório")
+		return
+	}
+	if h.denyLibraryModuleAccess(w, r, filepathParam) {
 		return
 	}
 
@@ -155,6 +181,9 @@ func (h *QueryHandler) ExecuteLookup(w http.ResponseWriter, r *http.Request) {
 	}
 	if lookupName == "" {
 		respondWithError(w, http.StatusBadRequest, "O parâmetro name é obrigatório")
+		return
+	}
+	if h.denyLibraryModuleAccess(w, r, filepathParam) {
 		return
 	}
 

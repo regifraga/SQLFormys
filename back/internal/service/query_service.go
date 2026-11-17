@@ -12,6 +12,7 @@ import (
 
 	"sqlformys/internal/domain"
 	"sqlformys/internal/engine"
+	"sqlformys/internal/library"
 	"sqlformys/internal/modulekind"
 	"sqlformys/pkg/database"
 )
@@ -27,7 +28,7 @@ func NewDynamicQueryService(connector *database.Connector) domain.DynamicQuerySe
 	}
 }
 
-func buildTree(currentDir string, currentRelPath string) ([]domain.TreeNode, error) {
+func buildTree(basePath, currentDir, currentRelPath string, includeLibraries bool) ([]domain.TreeNode, error) {
 	var nodes []domain.TreeNode
 
 	entries, err := os.ReadDir(currentDir)
@@ -41,6 +42,9 @@ func buildTree(currentDir string, currentRelPath string) ([]domain.TreeNode, err
 	seenBasename := make(map[string]string)
 
 	for _, entry := range entries {
+		if entry.Name() == library.MarkerFileName {
+			continue
+		}
 		if entry.IsDir() {
 			subDir := filepath.Join(currentDir, entry.Name())
 			subRel := entry.Name()
@@ -48,7 +52,12 @@ func buildTree(currentDir string, currentRelPath string) ([]domain.TreeNode, err
 				subRel = currentRelPath + "/" + entry.Name()
 			}
 
-			children, err := buildTree(subDir, subRel)
+			inLib := library.IsLibraryRelPath(basePath, subRel)
+			if !includeLibraries && inLib {
+				continue
+			}
+
+			children, err := buildTree(basePath, subDir, subRel, includeLibraries)
 			if err != nil {
 				return nil, err
 			}
@@ -56,6 +65,7 @@ func buildTree(currentDir string, currentRelPath string) ([]domain.TreeNode, err
 			nodes = append(nodes, domain.TreeNode{
 				Name:     entry.Name(),
 				Type:     "folder",
+				Library:  inLib,
 				Children: children,
 			})
 			continue
@@ -89,8 +99,8 @@ func buildTree(currentDir string, currentRelPath string) ([]domain.TreeNode, err
 	return nodes, nil
 }
 
-func (s *queryService) ListProjects(basePath string) ([]domain.TreeNode, error) {
-	nodes, err := buildTree(basePath, "")
+func (s *queryService) ListProjects(basePath string, includeLibraries bool) ([]domain.TreeNode, error) {
+	nodes, err := buildTree(basePath, basePath, "", includeLibraries)
 	if err != nil {
 		return nil, fmt.Errorf("erro ao ler diretório de queries: %w", err)
 	}
@@ -107,7 +117,12 @@ func (s *queryService) GetMetadata(basePath, queryPath, kind string) (domain.Met
 		return domain.MetadataResponse{}, fmt.Errorf("erro ao ler módulo: %w", err)
 	}
 
-	parser, err := engine.ParseMetadataForKind(string(content), resolvedKind)
+	expanded, err := engine.ExpandIncludes(basePath, string(content), resolvedKind)
+	if err != nil {
+		return domain.MetadataResponse{}, err
+	}
+
+	parser, err := engine.ParseMetadataForKind(expanded, resolvedKind)
 	if err != nil {
 		return domain.MetadataResponse{}, fmt.Errorf("erro ao fazer parse do módulo: %w", err)
 	}
@@ -144,7 +159,12 @@ func (s *queryService) ExecuteQuery(ctx context.Context, basePath, queryPath, ki
 		return domain.QueryResult{}, "", fmt.Errorf("erro ao ler módulo: %w", err)
 	}
 
-	parser, err := engine.ParseMetadataForKind(string(content), resolvedKind)
+	expanded, err := engine.ExpandIncludes(basePath, string(content), resolvedKind)
+	if err != nil {
+		return domain.QueryResult{}, "", err
+	}
+
+	parser, err := engine.ParseMetadataForKind(expanded, resolvedKind)
 	if err != nil {
 		return domain.QueryResult{}, "", fmt.Errorf("erro ao fazer parse do módulo: %w", err)
 	}
@@ -161,14 +181,14 @@ func (s *queryService) ExecuteQuery(ctx context.Context, basePath, queryPath, ki
 
 	if resolvedKind != modulekind.KindSQL {
 		if parser.HasWizard() {
-			result, runErr := engine.RunScriptStep(ctx, absPath, resolvedKind, parser, payload, stepID)
+			result, runErr := engine.RunScriptStep(ctx, absPath, resolvedKind, parser, payload, stepID, expanded)
 			if runErr != nil {
 				return result, "", runErr
 			}
 			result.ResultType = parser.ResultTypeForStep(stepID)
 			return result, "", nil
 		}
-		result, runErr := engine.RunScript(ctx, absPath, resolvedKind, parser, payload)
+		result, runErr := engine.RunScript(ctx, absPath, resolvedKind, parser, payload, expanded)
 		return result, "", runErr
 	}
 
@@ -177,7 +197,7 @@ func (s *queryService) ExecuteQuery(ctx context.Context, basePath, queryPath, ki
 		if stepID == "" {
 			stepID = parser.LastStepID()
 		}
-		finalSQL, err := engine.InjectStepValues(string(content), stepID, resolvedKind, payload, parser.Fields, parser.ResultType, defaultDriver)
+		finalSQL, err := engine.InjectStepValues(expanded, stepID, resolvedKind, payload, parser.Fields, parser.ResultType, defaultDriver)
 		if err != nil {
 			return domain.QueryResult{}, "", err
 		}
@@ -193,7 +213,7 @@ func (s *queryService) ExecuteQuery(ctx context.Context, basePath, queryPath, ki
 		return s.runPreparedSQL(ctx, &workParser, finalSQL, payload, defaultDriver, defaultDsn)
 	}
 
-	finalSQL := engine.InjectValues(string(content), payload, parser.Fields, defaultDriver)
+	finalSQL := engine.InjectValues(expanded, payload, parser.Fields, defaultDriver)
 	return s.runPreparedSQL(ctx, parser, finalSQL, payload, defaultDriver, defaultDsn)
 }
 
@@ -215,7 +235,12 @@ func (s *queryService) ExecuteLookup(ctx context.Context, basePath, queryPath, k
 		return domain.LookupResult{}, "", fmt.Errorf("erro ao ler arquivo SQL: %w", err)
 	}
 
-	parser, err := engine.ParseMetadata(string(content))
+	expanded, err := engine.ExpandIncludes(basePath, string(content), modulekind.KindSQL)
+	if err != nil {
+		return domain.LookupResult{}, "", err
+	}
+
+	parser, err := engine.ParseMetadata(expanded)
 	if err != nil {
 		return domain.LookupResult{}, "", fmt.Errorf("erro ao fazer parse do SQL: %w", err)
 	}
@@ -229,7 +254,7 @@ func (s *queryService) ExecuteLookup(ctx context.Context, basePath, queryPath, k
 		return domain.LookupResult{}, "", err
 	}
 
-	finalSQL := engine.InjectLookupValues(string(content), lookupSQL, lookupField, payload, parser.Fields, defaultDriver)
+	finalSQL := engine.InjectLookupValues(expanded, lookupSQL, lookupField, payload, parser.Fields, defaultDriver)
 	result, sql, err := s.runPreparedSQL(ctx, parser, finalSQL, payload, defaultDriver, defaultDsn)
 	if err != nil {
 		return domain.LookupResult{}, sql, err

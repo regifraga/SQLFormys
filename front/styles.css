@@ -518,6 +518,18 @@ body.is-resizing .main-content {
     font-weight: 600;
 }
 
+.tree-folder-header.tree-folder-library .library-icon {
+    color: var(--primary-color);
+    opacity: 0.92;
+}
+
+.tree-folder-header.tree-folder-library .tree-title::after {
+    content: ' · Biblioteca';
+    font-size: 0.8em;
+    font-weight: 500;
+    color: var(--text-muted, #888);
+}
+
 .tree-collapsed-badge {
     display: none;
     width: 36px;

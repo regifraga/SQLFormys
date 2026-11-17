@@ -16,12 +16,12 @@ import (
 )
 
 // RunScriptStep runs one wizard step body for script modules, or the full script when step has no body.
-func RunScriptStep(ctx context.Context, absPath, kind string, parser *SQLParser, payload map[string]interface{}, stepID string) (domain.QueryResult, error) {
+func RunScriptStep(ctx context.Context, absPath, kind string, parser *SQLParser, payload map[string]interface{}, stepID, moduleSource string) (domain.QueryResult, error) {
 	if parser == nil {
 		return domain.QueryResult{}, fmt.Errorf("parser inválido")
 	}
 	if !parser.HasWizard() {
-		return RunScript(ctx, absPath, kind, parser, payload)
+		return RunScript(ctx, absPath, kind, parser, payload, moduleSource)
 	}
 	st, ok := parser.StepByID(stepID)
 	if !ok {
@@ -126,8 +126,35 @@ func runScriptBody(ctx context.Context, absPath, kind string, parser *SQLParser,
 	}, nil
 }
 
+func materializeScriptFile(absPath, kind, moduleSource string) (scriptPath string, cleanup func(), err error) {
+	cleanup = func() {}
+	if strings.TrimSpace(moduleSource) == "" {
+		scriptPath, err = filepath.Abs(absPath)
+		return scriptPath, cleanup, err
+	}
+	ext, err := modulekind.ExtForKind(kind)
+	if err != nil {
+		return "", cleanup, err
+	}
+	f, err := os.CreateTemp("", "sqlformys-*"+ext)
+	if err != nil {
+		return "", cleanup, err
+	}
+	cleanup = func() { _ = os.Remove(f.Name()) }
+	if _, werr := f.WriteString(moduleSource); werr != nil {
+		cleanup()
+		return "", func() {}, werr
+	}
+	if cerr := f.Close(); cerr != nil {
+		cleanup()
+		return "", func() {}, cerr
+	}
+	return f.Name(), cleanup, nil
+}
+
 // RunScript executes a .sh or .ps1 module with form values passed as environment variables.
-func RunScript(ctx context.Context, absPath, kind string, parser *SQLParser, payload map[string]interface{}) (domain.QueryResult, error) {
+// moduleSource, when non-empty, is the expanded file content (INCLUDE resolved); otherwise absPath is executed as-is.
+func RunScript(ctx context.Context, absPath, kind string, parser *SQLParser, payload map[string]interface{}, moduleSource string) (domain.QueryResult, error) {
 	if parser == nil {
 		return domain.QueryResult{}, fmt.Errorf("parser inválido")
 	}
@@ -147,9 +174,15 @@ func RunScript(ctx context.Context, absPath, kind string, parser *SQLParser, pay
 		env = append(env, fmt.Sprintf("%s=%s", field.Field, formatEnvValue(val)))
 	}
 
-	scriptPath, err := filepath.Abs(absPath)
+	origPath, err := filepath.Abs(absPath)
 	if err != nil {
 		return domain.QueryResult{}, fmt.Errorf("caminho do script inválido: %w", err)
+	}
+
+	scriptPath, cleanup, err := materializeScriptFile(absPath, kind, moduleSource)
+	defer cleanup()
+	if err != nil {
+		return domain.QueryResult{}, err
 	}
 
 	cmd, err := scriptCommand(runCtx, kind, scriptPath)
@@ -157,7 +190,7 @@ func RunScript(ctx context.Context, absPath, kind string, parser *SQLParser, pay
 		return domain.QueryResult{}, err
 	}
 	cmd.Env = env
-	cmd.Dir = filepath.Dir(scriptPath)
+	cmd.Dir = filepath.Dir(origPath)
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout

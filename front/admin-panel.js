@@ -130,6 +130,7 @@ Write-Output "Valor: $env:NM_EXEMPLO"
     return `--DESCRIPTION=Novo módulo SQL
 --RESULT_TYPE=GRID
 --TIMEOUT=60
+--INCLUDE=Bibliotecas/Comum/exemplo_fragmento
 
 -- Exemplo de wizard (opcional; remova PROPERTIES único abaixo se usar STEPs):
 --<STEP Passo1>
@@ -147,6 +148,30 @@ Write-Output "Valor: $env:NM_EXEMPLO"
 --</PROPERTIES>
 
 SELECT 1 AS Id, @NM_EXEMPLO AS Valor;
+`;
+}
+
+function scaffoldLibraryContent(kind) {
+    const k = normalizeEditorKind(kind);
+    if (k === 'sh') {
+        return `#!/usr/bin/env bash
+# Fragmento reutilizável (Biblioteca). Referencie com #INCLUDE=caminho/deste_arquivo
+
+# Exemplo:
+# echo "trecho compartilhado"
+`;
+    }
+    if (k === 'ps1') {
+        return `# Fragmento reutilizável (Biblioteca). Referencie com #INCLUDE=caminho/deste_arquivo
+
+# Exemplo:
+# Write-Output "trecho compartilhado"
+`;
+    }
+    return `-- Fragmento reutilizável (Biblioteca). Referencie com --INCLUDE=caminho/deste_arquivo
+
+-- Exemplo:
+-- SELECT 1 AS Exemplo;
 `;
 }
 
@@ -465,13 +490,17 @@ function appendTreeAdminRootBar(container, apiBaseUrl) {
     container.appendChild(bar);
 }
 
-function openAddNodeModal(apiBaseUrl, parentPath) {
+function openAddNodeModal(apiBaseUrl, parentPath, parentIsLibrary = false) {
     const body = document.createElement('div');
+    const libraryOption = parentIsLibrary
+        ? ''
+        : '<option value="library">Biblioteca</option>';
     body.innerHTML = `
         <div class="form-field-stack">
             <label for="add-node-type">Tipo</label>
             <select id="add-node-type" class="form-control">
                 <option value="folder">Pasta</option>
+                ${libraryOption}
                 <option value="file">Arquivo</option>
             </select>
             <div class="form-field-stack hidden" id="add-node-file-kind-wrap">
@@ -491,9 +520,25 @@ function openAddNodeModal(apiBaseUrl, parentPath) {
     `;
     const typeSelect = body.querySelector('#add-node-type');
     const kindWrap = body.querySelector('#add-node-file-kind-wrap');
+    const hint = body.querySelector('#add-node-hint');
     const syncKindVisibility = () => {
         const isFile = typeSelect?.value === 'file';
+        const isLibrary = typeSelect?.value === 'library';
         kindWrap?.classList.toggle('hidden', !isFile);
+        if (hint) {
+            if (isLibrary) {
+                hint.textContent = 'Fragmentos reutilizáveis via --INCLUDE / #INCLUDE. Só administradores veem esta pasta.';
+                hint.classList.remove('is-error');
+            } else if (!isFile) {
+                hint.textContent = parentIsLibrary
+                    ? 'Subpasta dentro de uma Biblioteca (herda o tipo).'
+                    : '';
+            } else if (parentIsLibrary) {
+                hint.textContent = 'Arquivo de fragmento para uso com INCLUDE.';
+            } else {
+                hint.textContent = '';
+            }
+        }
     };
     typeSelect?.addEventListener('change', syncKindVisibility);
     syncKindVisibility();
@@ -511,11 +556,11 @@ function openAddNodeModal(apiBaseUrl, parentPath) {
                 return false;
             }
             const rel = parentPath ? `${parentPath}/${name}` : name;
-            if (type === 'folder') {
+            if (type === 'folder' || type === 'library') {
                 const res = await apiFetch(`${apiBaseUrl}/admin/folders`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ path: rel })
+                    body: JSON.stringify({ path: rel, library: type === 'library' })
                 });
                 if (!res.ok) {
                     const data = await res.json().catch(() => ({}));
@@ -524,11 +569,13 @@ function openAddNodeModal(apiBaseUrl, parentPath) {
                     return false;
                 }
                 await loadProjects();
-                showToast('Estrutura', 'Pasta criada.', 'success');
+                showToast('Estrutura', type === 'library' ? 'Biblioteca criada.' : 'Pasta criada.', 'success');
                 return true;
             }
             const fileKind = body.querySelector('#add-node-file-kind')?.value || 'sql';
-            openSqlEditor(apiBaseUrl, rel, scaffoldModuleContent(fileKind), fileKind);
+            const inLibrary = parentIsLibrary || type === 'library';
+            const scaffold = inLibrary ? scaffoldLibraryContent(fileKind) : scaffoldModuleContent(fileKind);
+            openSqlEditor(apiBaseUrl, rel, scaffold, fileKind);
             return true;
         }
     });
@@ -930,7 +977,7 @@ function initAdminPanel(identity, apiBaseUrl) {
     }
 }
 
-function attachFolderAdminActions(folderHeader, folderRelPath, folderName, apiBaseUrl) {
+function attachFolderAdminActions(folderHeader, folderRelPath, folderName, apiBaseUrl, parentIsLibrary = false) {
     if (!isAdminUser()) return;
     const actions = document.createElement('span');
     actions.className = 'tree-row-actions';
@@ -938,7 +985,7 @@ function attachFolderAdminActions(folderHeader, folderRelPath, folderName, apiBa
         openRenameFolderModal(apiBaseUrl, folderRelPath, folderName);
     }));
     actions.appendChild(createTreeIconBtn('Adicionar', ICON_ADD, () => {
-        openAddNodeModal(apiBaseUrl, folderRelPath);
+        openAddNodeModal(apiBaseUrl, folderRelPath, parentIsLibrary);
     }));
     folderHeader.appendChild(actions);
 }

@@ -188,7 +188,17 @@ Place these at the top of the file (outside the properties block):
 | `--EXECUTE_MODE=AUTO` | Run as soon as the form is submitted (no extra confirmation). |
 | `--RESULT_TYPE=...` | How query results are rendered in the UI (see values below). Defaults to **GRID** if missing or invalid. |
 | `--TIMEOUT=10` | Query timeout in seconds. Defaults to **60** if missing or invalid. |
+| `--INCLUDE=...` | Inlines another module from a **Biblioteca** folder (same `kind` as the host: `.sql`, `.sh`, or `.ps1`). You may use several lines. Path is logical (no extension), relative to `back/queries`. |
 | `--<PROPERTIES>` / `--</PROPERTIES>` | Block that defines the form fields. |
+
+### Bibliotecas and `--INCLUDE`
+
+Administrators can create a folder type **Biblioteca** in the sidebar (add menu). It holds reusable fragments grouped by product, area, and so on. Only administrators see Biblioteca folders and their modules in the tree; standard users can still run normal modules that reference fragments via `--INCLUDE`.
+
+- Shell and PowerShell modules use `#INCLUDE=...` with the same rules.
+- Includes may nest (fragment referencing another fragment). Cycles and excessive depth are rejected.
+- Only modules inside a Biblioteca tree may be referenced.
+- Put module-level tags such as `--DESCRIPTION` and `--SERVER` **above** any `--INCLUDE` lines so they apply to the host module.
 
 **`--RESULT_TYPE` values** (case-insensitive):
 
@@ -509,6 +519,7 @@ Script modules reuse the same **form tags** and **PROPERTIES** syntax, but metad
 | `#EXECUTE_MODE=AUTO` | Run on load (same as SQL) |
 | `#RESULT_TYPE=...` | Defaults to **TEXT** (not GRID). Use **GRID** only if stdout is a JSON array of objects |
 | `#TIMEOUT=60` | Process timeout in seconds |
+| `#INCLUDE=...` | Same as `--INCLUDE` (Biblioteca fragments, same file kind) |
 | `#<PROPERTIES>` / `#</PROPERTIES>` | Form fields (same `?`, `#` required, types as SQL) |
 
 On execute, the API runs the file with **`bash`** (`.sh`) or **`pwsh -File`** (`.ps1`) and passes each form field as an **environment variable** (`NM_ARQUIVO=...` / PowerShell `$env:NM_ARQUIVO`). There is **no** `--SERVER=`, **no** SQL injection, and **no** LOOKUP blocks against the database.

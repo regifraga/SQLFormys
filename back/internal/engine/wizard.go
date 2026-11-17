@@ -327,7 +327,7 @@ func extractResidualSQL(content string, d metadataDialect) string {
 	out = StripAllStepBlocks(out, d.linePrefix)
 	out = d.propertiesRegex.ReplaceAllString(out, "")
 	// Strip header tags
-	for _, tag := range []string{"SERVER", "TIMEOUT", "DESCRIPTION", "EXECUTE_MODE", "RESULT_TYPE"} {
+	for _, tag := range []string{"SERVER", "TIMEOUT", "DESCRIPTION", "EXECUTE_MODE", "RESULT_TYPE", "INCLUDE"} {
 		out = tagRegex(d.linePrefix, tag).ReplaceAllString(out, "")
 	}
 	out = stripSqlServerDeclareBlock(out)

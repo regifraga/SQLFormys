@@ -984,6 +984,9 @@ function renderTree(nodes, container, isSearching = false) {
             if (node.type === 'folder') {
                 const folderHeader = document.createElement('button');
                 folderHeader.className = 'tree-folder-header';
+                if (node.library) {
+                    folderHeader.classList.add('tree-folder-library');
+                }
                 folderHeader.type = 'button';
                 folderHeader.style.paddingLeft = `${16 + (level * 16)}px`;
                 folderHeader.setAttribute('data-tooltip', node.name);
@@ -994,10 +997,16 @@ function renderTree(nodes, container, isSearching = false) {
                 const badge = level === 0
                     ? `<span class="tree-collapsed-badge" aria-hidden="true">${treeCollapsedAbbr(node.name)}</span>`
                     : '';
-                folderHeader.innerHTML = `
-                    <svg class="tree-icon folder-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                const folderIcon = node.library
+                    ? `<svg class="tree-icon folder-icon library-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path>
+                        <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path>
+                    </svg>`
+                    : `<svg class="tree-icon folder-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                         <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
-                    </svg>
+                    </svg>`;
+                folderHeader.innerHTML = `
+                    ${folderIcon}
                     ${badge}
                     <span class="tree-title">${node.name}</span>
                     <svg class="tree-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -1013,7 +1022,7 @@ function renderTree(nodes, container, isSearching = false) {
                 childrenContainer.dataset.sidebarFolderId = folderId;
 
                 if (typeof attachFolderAdminActions === 'function') {
-                    attachFolderAdminActions(folderHeader, folderRel, node.name, API_BASE_URL);
+                    attachFolderAdminActions(folderHeader, folderRel, node.name, API_BASE_URL, !!node.library);
                 }
 
                 if (node.children && node.children.length > 0) {

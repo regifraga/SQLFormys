@@ -25,7 +25,7 @@ echo "hello world"
 		ResultType: "TEXT",
 		Timeout:    10,
 	}
-	result, err := RunScript(context.Background(), script, modulekind.KindSH, parser, map[string]interface{}{})
+	result, err := RunScript(context.Background(), script, modulekind.KindSH, parser, map[string]interface{}{}, "")
 	assert.NoError(t, err)
 	assert.Equal(t, "TEXT", result.ResultType)
 	assert.Len(t, result.Rows, 1)

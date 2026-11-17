@@ -9,7 +9,9 @@ import (
 	"sqlformys/internal/accounts"
 	"sqlformys/internal/auth"
 	"sqlformys/internal/config"
+	"sqlformys/internal/engine"
 	"sqlformys/internal/htpasswd"
+	"sqlformys/internal/modulekind"
 	"sqlformys/internal/service"
 )
 
@@ -177,7 +179,14 @@ func (h *AdminHandler) PutSQL(w http.ResponseWriter, r *http.Request) {
 	if err := json.Unmarshal(body, &payload); err != nil {
 		payload.Content = string(body)
 	}
-	kind := r.URL.Query().Get("kind")
+	kind := modulekind.NormalizeKind(r.URL.Query().Get("kind"))
+	if kind == "" {
+		kind = modulekind.KindSQL
+	}
+	if _, err := engine.ExpandIncludes(h.cfg.QueriesBasePath, payload.Content, kind); err != nil {
+		respondWithError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	if err := h.content.WriteSQL(h.cfg.QueriesBasePath, rel, kind, payload.Content); err != nil {
 		status := http.StatusBadRequest
 		if strings.Contains(err.Error(), "já existe um módulo") {
@@ -216,7 +225,8 @@ func (h *AdminHandler) RenameModule(w http.ResponseWriter, r *http.Request) {
 }
 
 type folderCreateRequest struct {
-	Path string `json:"path"`
+	Path    string `json:"path"`
+	Library bool   `json:"library"`
 }
 
 func (h *AdminHandler) CreateFolder(w http.ResponseWriter, r *http.Request) {
@@ -228,7 +238,7 @@ func (h *AdminHandler) CreateFolder(w http.ResponseWriter, r *http.Request) {
 		respondWithError(w, http.StatusBadRequest, "JSON inválido")
 		return
 	}
-	if err := h.content.CreateFolder(h.cfg.QueriesBasePath, body.Path); err != nil {
+	if err := h.content.CreateFolder(h.cfg.QueriesBasePath, body.Path, body.Library); err != nil {
 		respondWithError(w, http.StatusBadRequest, err.Error())
 		return
 	}
