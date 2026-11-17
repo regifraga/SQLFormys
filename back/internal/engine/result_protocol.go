@@ -42,6 +42,25 @@ func firstMatchingCol(keys map[string]string, candidates []string) string {
 	return ""
 }
 
+// inferCanExecuteFromMessageColumn applies message-only validation when IC_EXECUTE is absent:
+// non-empty DS_MESSAGE/__MESSAGE on the first row blocks execution; empty allows it.
+func inferCanExecuteFromMessageColumn(keys map[string]string, row map[string]interface{}, canExecute *bool) *bool {
+	if canExecute != nil || row == nil {
+		return canExecute
+	}
+	msgCol := firstMatchingCol(keys, protocolMessageCols)
+	if msgCol == "" {
+		return nil
+	}
+	text := formatCell(row[msgCol])
+	if text != "" {
+		f := false
+		return &f
+	}
+	t := true
+	return &t
+}
+
 func parseCanExecuteValue(raw string) *bool {
 	s := strings.TrimSpace(strings.ToLower(raw))
 	if s == "" {
@@ -109,9 +128,11 @@ func ApplyResultProtocol(result domain.QueryResult) domain.QueryResult {
 		canExecute = ce
 	} else if len(out.Columns) > 0 {
 		keys := columnKeyMap(out.Columns)
-		execCol := firstMatchingCol(keys, protocolCanExecuteCols)
-		if execCol != "" && len(out.Rows) > 0 {
-			canExecute = parseCanExecuteValue(formatCell(out.Rows[0][execCol]))
+		if len(out.Rows) > 0 {
+			if execCol := firstMatchingCol(keys, protocolCanExecuteCols); execCol != "" {
+				canExecute = parseCanExecuteValue(formatCell(out.Rows[0][execCol]))
+			}
+			canExecute = inferCanExecuteFromMessageColumn(keys, out.Rows[0], canExecute)
 		}
 		removeCols := protocolColumnsToRemove(keys)
 		newCols := make([]string, 0, len(out.Columns))
@@ -138,6 +159,10 @@ func ApplyResultProtocol(result domain.QueryResult) domain.QueryResult {
 
 	if len(messages) > 0 {
 		out.Messages = messages
+	}
+	if canExecute == nil && len(messages) > 0 {
+		f := false
+		canExecute = &f
 	}
 	if canExecute != nil {
 		out.CanExecute = canExecute

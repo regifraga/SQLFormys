@@ -43,6 +43,15 @@
     --error-border-soft: rgba(239, 68, 68, 0.2);
     --success-color: #10b981;
 
+    /* Aviso (amarelo/âmbar alinhado ao restante do tema claro) */
+    --warning: #b45309;
+    --warning-color: #f59e0b;
+    --warning-border: #fcd34d;
+    --warning-bg: rgba(245, 158, 11, 0.14);
+    --warning-btn-bg: #f59e0b;
+    --warning-btn-hover: #d97706;
+    --warning-btn-text: #ffffff;
+
     --table-header-bg: var(--bg-main);
     --table-header-text: var(--text-secondary);
     --table-header-icon: var(--text-muted);
@@ -98,6 +107,14 @@
     --btn-primary-bg: #2563eb;
     --btn-primary-hover: #1d4ed8;
     --btn-primary-text: #f8fafc;
+
+    --warning: #fbbf24;
+    --warning-color: #f59e0b;
+    --warning-border: rgba(251, 191, 36, 0.45);
+    --warning-bg: rgba(245, 158, 11, 0.18);
+    --warning-btn-bg: #f59e0b;
+    --warning-btn-hover: #d97706;
+    --warning-btn-text: #1c1917;
 }
 
 /* ==========================================================================
@@ -932,7 +949,7 @@ body.is-resizing .main-content {
 }
 
 .meta-badge.timeout {
-    border-left: 3px solid #f59e0b;
+    border-left: 3px solid var(--warning-color, #f59e0b);
 }
 
 .card-body {
@@ -1458,8 +1475,8 @@ button.wizard-stepper-item {
     padding: 10px 14px;
     border-radius: var(--radius-md, 8px);
     font-size: 0.875rem;
-    border: 1px solid var(--warning-border, #e8c547);
-    background: var(--warning-bg, rgba(232, 197, 71, 0.12));
+    border: 1px solid var(--warning-border);
+    background: var(--warning-bg);
     color: var(--text-primary);
 }
 
@@ -1608,7 +1625,7 @@ button.wizard-stepper-item {
 }
 
 .toast.warning {
-    border-left-color: #f59e0b;
+    border-left-color: var(--warning-color, #f59e0b);
 }
 
 .toast-close {
@@ -2122,6 +2139,14 @@ button.wizard-stepper-item {
 /* ==========================================================================
    Ações da Grid e Botões de Exportação
    ========================================================================== */
+.grid-card:focus {
+    outline: none;
+}
+
+.grid-card:focus-visible {
+    box-shadow: 0 0 0 3px var(--primary-focus-ring);
+}
+
 .grid-card .card-header {
     display: flex;
     justify-content: space-between;
@@ -2790,7 +2815,7 @@ button.meta-badge.pins:focus-visible {
 }
 
 .notification-item--warning {
-    border-left-color: #f59e0b;
+    border-left-color: var(--warning-color, #f59e0b);
 }
 
 .notification-item--unread {
@@ -3255,7 +3280,7 @@ button.meta-badge.pins:focus-visible {
 }
 
 .app-modal--warning .app-modal-header h3 {
-    color: var(--warning, #d97706);
+    color: var(--warning);
 }
 
 .app-modal--danger {
@@ -3272,15 +3297,15 @@ button.meta-badge.pins:focus-visible {
 }
 
 .btn-warning {
-    background: var(--warning-btn-bg, #d97706);
-    border-color: var(--warning-btn-bg, #d97706);
-    color: var(--warning-btn-text, #1c1917);
+    background: var(--warning-btn-bg);
+    border-color: var(--warning-btn-bg);
+    color: var(--warning-btn-text);
 }
 
 .btn-warning:hover {
-    background: var(--warning-btn-hover, #b45309);
-    border-color: var(--warning-btn-hover, #b45309);
-    color: var(--warning-btn-text, #1c1917);
+    background: var(--warning-btn-hover);
+    border-color: var(--warning-btn-hover);
+    color: var(--warning-btn-text);
     box-shadow: var(--shadow-sm);
 }
 
@@ -3289,27 +3314,21 @@ button.meta-badge.pins:focus-visible {
 }
 
 #btn-execute.execute-confirm-warning {
-    background-color: var(--warning-btn-bg, #d97706);
-    border-color: var(--warning-btn-bg, #d97706);
-    color: var(--warning-btn-text, #1c1917);
+    background-color: var(--warning-btn-bg);
+    border-color: var(--warning-btn-bg);
+    color: var(--warning-btn-text);
     box-shadow: none;
 }
 
 #btn-execute.execute-confirm-warning:hover {
-    background-color: var(--warning-btn-hover, #b45309);
-    border-color: var(--warning-btn-hover, #b45309);
-    color: var(--warning-btn-text, #1c1917);
+    background-color: var(--warning-btn-hover);
+    border-color: var(--warning-btn-hover);
+    color: var(--warning-btn-text);
     box-shadow: var(--shadow-sm);
 }
 
 #btn-execute.execute-confirm-warning:focus-visible {
-    outline-color: var(--warning-btn-bg, #d97706);
-}
-
-[data-theme="dark"] #btn-execute.execute-confirm-warning {
-    --warning-btn-bg: #f59e0b;
-    --warning-btn-hover: #d97706;
-    --warning-btn-text: #1c1917;
+    outline-color: var(--warning-btn-bg);
 }
 
 #btn-execute.execute-confirm-danger {

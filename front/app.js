@@ -788,7 +788,7 @@ function restoreWizardStepResult(stepId) {
     }
     const step = currentWizard.steps.find(s => s.id === stepId);
     setWizardResultTitle(step ? wizardStepDisplayLabel(step) : '');
-    renderQueryResult(cached.data, cached.duration);
+    void renderQueryResult(cached.data, cached.duration);
 }
 
 async function runWizardStepQuery(stepMeta) {
@@ -1045,7 +1045,7 @@ async function executeQuery(payload, options = {}) {
         if (stepLabel) {
             setWizardResultTitle(stepLabel);
         }
-        renderQueryResult(result, duration);
+        await renderQueryResult(result, duration);
 
     } catch (error) {
         if (error && error.name === 'AbortError') {
@@ -1580,7 +1580,11 @@ async function renderWizardSummary() {
         const banner = document.createElement('div');
         banner.className = 'wizard-summary-gate-banner';
         banner.setAttribute('role', 'status');
-        banner.textContent = wizardSummaryGateMessage;
+        banner.textContent = interpolateTemplate(
+            wizardSummaryGateMessage,
+            collectFormValues(true),
+            getKnownFormFieldNames()
+        );
         gateBannerHost.appendChild(banner);
     };
 
@@ -1675,6 +1679,10 @@ function refreshInterpolatedTexts() {
         el.setAttribute('data-tooltip', resolved);
         el.setAttribute('aria-label', resolved ? `Informações: ${resolved}` : 'Informações do campo');
     });
+    const gateBanner = dynamicForm.querySelector('.wizard-summary-gate-banner');
+    if (gateBanner && wizardSummaryGateMessage) {
+        gateBanner.textContent = interpolateTemplate(wizardSummaryGateMessage, values, known);
+    }
     if (isWizardModule()) {
         renderWizardStepper();
     }
@@ -3205,11 +3213,14 @@ async function handleExecute() {
     if (isWizardModule()) {
         if (!validateWizardStepAt(wizardStepIndex)) return;
         if (isOnWizardSummaryStep() && wizardSummaryCanExecute === false) {
-            showToast(
-                'Execução bloqueada',
-                wizardSummaryGateMessage || 'A validação do resumo não permite executar.',
-                'warning'
-            );
+            const gateText = wizardSummaryGateMessage
+                ? interpolateTemplate(
+                    wizardSummaryGateMessage,
+                    collectFormValues(true),
+                    getKnownFormFieldNames()
+                )
+                : 'A validação do resumo não permite executar.';
+            showToast('Execução bloqueada', gateText, 'warning');
             return;
         }
         const confirmed = await promptExecuteConfirmation();
@@ -3231,6 +3242,7 @@ async function handleExecute() {
             if (currentQueryResult?.messages?.length) {
                 await drainRuntimeMessages(currentQueryResult);
             }
+            focusResultCardIfReturned();
         } catch (_err) {
             // toast já exibido
         }
@@ -3248,6 +3260,7 @@ async function handleExecute() {
         if (currentQueryResult?.messages?.length) {
             await drainRuntimeMessages(currentQueryResult);
         }
+        focusResultCardIfReturned();
     } catch (_err) {
         // toast já exibido
     }
@@ -3561,6 +3574,35 @@ function resolveResultType(resultData, fallback) {
     return 'GRID';
 }
 
+function queryResultHasReturnedData(resultData) {
+    if (!resultData) {
+        return false;
+    }
+    const resultType = resolveResultType(resultData, currentResultType);
+    if (resultType === 'GRID') {
+        const rows = resultData.rows;
+        return Array.isArray(rows) && rows.length > 0;
+    }
+    return joinResultColumnContent(resultData).trim().length > 0;
+}
+
+function focusResultCardIfReturned() {
+    if (!queryResultHasReturnedData(currentQueryResult)) {
+        return;
+    }
+    if (!gridContainer || gridContainer.classList.contains('hidden')) {
+        return;
+    }
+    requestAnimationFrame(() => {
+        gridContainer.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        try {
+            gridContainer.focus({ preventScroll: true });
+        } catch {
+            /* ignore */
+        }
+    });
+}
+
 function joinResultColumnContent(resultData) {
     if (!resultData || !resultData.rows || resultData.rows.length === 0) {
         return '';
@@ -3724,7 +3766,7 @@ async function renderResultByType(container, type, content) {
     }
 }
 
-function renderQueryResult(resultData, duration = null) {
+async function renderQueryResult(resultData, duration = null) {
     currentQueryResult = resultData;
     const resultType = resolveResultType(resultData, currentResultType);
     gridContainer.classList.remove('hidden');
@@ -3769,10 +3811,12 @@ function renderQueryResult(resultData, duration = null) {
     }
     if (resultDocument) {
         resultDocument.classList.remove('hidden');
-        renderResultByType(resultDocument, resultType, content).catch((err) => {
+        try {
+            await renderResultByType(resultDocument, resultType, content);
+        } catch (err) {
             console.error(err);
             showToast('Erro', 'Falha ao renderizar o resultado.', 'error');
-        });
+        }
     }
 
     pushActiveResultPinSync(duration);

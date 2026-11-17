@@ -45,3 +45,43 @@ func TestParseCanExecuteBool(t *testing.T) {
 	assert.True(t, *ParseCanExecuteBool("S"))
 	assert.False(t, *ParseCanExecuteBool("N"))
 }
+
+func TestApplyResultProtocolMessageOnlyValidate(t *testing.T) {
+	block := domain.QueryResult{
+		Columns: []string{"DS_MESSAGE"},
+		Rows: []map[string]interface{}{
+			{"DS_MESSAGE": "Nenhum arquivo encontrado"},
+		},
+		ResultType: "GRID",
+	}
+	out := ApplyResultProtocol(block)
+	require.NotNil(t, out.CanExecute)
+	assert.False(t, *out.CanExecute)
+	require.Len(t, out.Messages, 1)
+
+	allow := domain.QueryResult{
+		Columns: []string{"DS_MESSAGE"},
+		Rows: []map[string]interface{}{
+			{"DS_MESSAGE": ""},
+		},
+		ResultType: "GRID",
+	}
+	out = ApplyResultProtocol(allow)
+	require.NotNil(t, out.CanExecute)
+	assert.True(t, *out.CanExecute)
+	assert.Empty(t, out.Messages)
+}
+
+func TestApplyResultProtocolMessageOnlyDoesNotOverrideICExecute(t *testing.T) {
+	in := domain.QueryResult{
+		Columns: []string{"IC_EXECUTE", "DS_MESSAGE"},
+		Rows: []map[string]interface{}{
+			{"IC_EXECUTE": "S", "DS_MESSAGE": "Aviso opcional"},
+		},
+		ResultType: "GRID",
+	}
+	out := ApplyResultProtocol(in)
+	require.NotNil(t, out.CanExecute)
+	assert.True(t, *out.CanExecute)
+	require.Len(t, out.Messages, 1)
+}

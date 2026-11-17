@@ -272,7 +272,7 @@ Basic shape:
 
 ### Variable interpolation in UI text
 
-In **labels**, **help** (tooltip), and **wizard step titles** (`STEP id: text` inside `--<WIZARD>`), you can reference other form fields with `{{FIELD_NAME}}`. Spaces inside the braces are allowed (`{{ NM_ARQUIVO }}`).
+In **labels**, **help** (tooltip), **wizard step titles** (`STEP id: text` inside `--<WIZARD>`), **`--CONFIRM` / `--MESSAGE`**, **wizard `MESSAGE` lines** (`ENTER` / `EXIT` / `FINISH`), and **runtime texts** from the result set (`DS_MESSAGE` / `__MESSAGE` — modals after step queries and the summary **VALIDATE** banner), you can reference form fields and wizard variables with `{{FIELD_NAME}}`. Spaces inside the braces are allowed (`{{ NM_ARQUIVO }}`).
 
 | Token | Meaning |
 |---|---|
@@ -300,7 +300,18 @@ Use `{{…}}` instead of `@(…)`, `$(…)`, or `$VAR` so the text stays valid i
 --</WIZARD>
 ```
 
-After the user fills `NM_ARQUIVO` on step 1, the step 2 tooltip and stepper label show that value.
+After the user fills `NM_ARQUIVO` on step 1, the step 2 tooltip and stepper label show that value. Columns returned from a step query (for example `@MSG` in the first row) are also available in `{{…}}` once that step has run, in addition to current form fields.
+
+Example **VALIDATE** message with interpolation:
+
+```sql
+--<QUERY PodeExecutar>
+-- SELECT CASE WHEN … THEN 'S' ELSE 'N' END AS IC_EXECUTE,
+--        CASE WHEN … THEN '' ELSE 'Informe o nome do arquivo (do tipo: {{ IC_TIPO }}) para continuar.' END AS DS_MESSAGE
+--</QUERY>
+```
+
+On the summary screen, the UI substitutes `{{ IC_TIPO }}` with the value the user chose on an earlier step.
 
 ```sql
 --<PROPERTIES>
@@ -378,7 +389,14 @@ Unknown field names fail at parse time. Hidden/`CONTEXT` fields cannot be listed
 
 **`SUMMARY QUERY(…)`** runs a named `--<QUERY>` for a grid on the review screen instead of (or in addition to) field tables.
 
-**`SUMMARY … VALIDATE(Nome)`** runs another named query to decide whether **Executar** is enabled. The first row should expose `IC_EXECUTE` or `__CAN_EXECUTE` (`S`/`Y`/`1`/`true` = allow; `N`/`0`/`false` = block). Optional `DS_MESSAGE` or `__MESSAGE` explains why execution is blocked.
+**`SUMMARY … VALIDATE(Nome)`** runs another named query to decide whether **Executar** is enabled. The first row may use either style (or both):
+
+| Style | Columns | Rule on the **first row** |
+|---|---|---|
+| Explicit flag | `IC_EXECUTE` or `__CAN_EXECUTE` | `S`/`Y`/`1`/`true` = allow; `N`/`0`/`false` = block. When present, this column wins over message-only rules below. |
+| Message-only | `DS_MESSAGE` or `__MESSAGE` (no execute flag) | Non-empty text = block (same as `IC_EXECUTE='N'`); empty string = allow. Handy for a single `CASE … END AS DS_MESSAGE` without repeating `EXISTS`. |
+
+Optional `DS_MESSAGE` / `__MESSAGE` with an explicit flag still explains why execution is blocked (supports `{{FIELD}}`; see **Variable interpolation in UI text**).
 
 ```sql
 -- SUMMARY QUERY(Lista) VALIDATE(PodeExecutar): Confira os dados
@@ -395,7 +413,7 @@ If there is no `VALIDATE` query, the UI may read `IC_EXECUTE` from the summary p
 -- MESSAGE FINISH CONFIRM: Texto antes de Executar (antes de --CONFIRM)
 ```
 
-**Runtime messages** (SQL result columns, stripped from the grid): `DS_MESSAGE` / `__MESSAGE`, optional `TP_MESSAGE` / `__MESSAGE_TYPE`, and `IC_EXECUTE` / `__CAN_EXECUTE` for validation. In shell/PowerShell stdout: `SQLFORMYS_MESSAGE=WARNING: …` and `SQLFORMYS_CAN_EXECUTE=N` (lines removed from displayed output).
+**Runtime messages** (SQL result columns, stripped from the grid): `DS_MESSAGE` / `__MESSAGE`, optional `TP_MESSAGE` / `__MESSAGE_TYPE`, and `IC_EXECUTE` / `__CAN_EXECUTE` for validation (or message-only validation when the execute flag is omitted). The message text is shown in modals or on the summary **VALIDATE** banner and supports the same `{{FIELD}}` interpolation as static UI strings. In shell/PowerShell stdout: `SQLFORMYS_MESSAGE=WARNING: …` infers a block when `SQLFORMYS_CAN_EXECUTE` is omitted; explicit `SQLFORMYS_CAN_EXECUTE=N` (lines removed from displayed output) still works as before.
 
 Omit `SUMMARY` entirely for the previous behavior (**Executar** on the last real step). Shell/PowerShell use `# SUMMARY` (or `# SUMMARY: …`) inside `#<WIZARD>`.
 
