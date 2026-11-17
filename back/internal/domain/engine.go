@@ -28,9 +28,16 @@ type WizardStepMeta struct {
 	FieldNames []string `json:"fieldNames"`
 }
 
+// WizardSummaryMeta enables an optional final review screen before execute.
+type WizardSummaryMeta struct {
+	Label      string   `json:"label"`
+	FieldNames []string `json:"fieldNames,omitempty"`
+}
+
 // WizardMetadata is returned when a module defines STEP/WIZARD blocks.
 type WizardMetadata struct {
-	Steps []WizardStepMeta `json:"steps"`
+	Steps   []WizardStepMeta     `json:"steps"`
+	Summary *WizardSummaryMeta   `json:"summary,omitempty"`
 }
 
 // TreeNode represents a hierarchical node (folder or module) in the queries directory tree

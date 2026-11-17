@@ -58,6 +58,7 @@ let wizardStepResults = {};
 let wizardStepPanes = new Map();
 let wizardResultStepLabel = '';
 let wizardNavBusy = false;
+const WIZARD_SUMMARY_STEP_ID = '__summary';
 let formExecutionCount = 0;
 let activeFormExecutionAbort = null;
 let formExecutionIdleResolvers = [];
@@ -507,8 +508,44 @@ function isWizardModule() {
     return Boolean(currentWizard && Array.isArray(currentWizard.steps) && currentWizard.steps.length > 0);
 }
 
+function hasWizardSummaryStep() {
+    return Boolean(isWizardModule() && currentWizard.summary);
+}
+
+function wizardUiStepCount() {
+    if (!isWizardModule()) return 0;
+    return currentWizard.steps.length + (hasWizardSummaryStep() ? 1 : 0);
+}
+
+function isWizardSummaryIndex(index) {
+    return hasWizardSummaryStep() && index === currentWizard.steps.length;
+}
+
+function isOnWizardSummaryStep() {
+    return isWizardSummaryIndex(wizardStepIndex);
+}
+
+function getLastWizardRealStepMeta() {
+    if (!isWizardModule()) return null;
+    const steps = currentWizard.steps;
+    return steps.length ? steps[steps.length - 1] : null;
+}
+
+function getWizardSummaryStepMeta() {
+    if (!hasWizardSummaryStep()) return null;
+    return {
+        id: WIZARD_SUMMARY_STEP_ID,
+        label: currentWizard.summary.label || 'Resumo',
+        fieldNames: [],
+        hasQuery: false
+    };
+}
+
 function getWizardStepMeta(index) {
     if (!isWizardModule()) return null;
+    if (isWizardSummaryIndex(index)) {
+        return getWizardSummaryStepMeta();
+    }
     return currentWizard.steps[index] || null;
 }
 
@@ -537,10 +574,13 @@ function syncWizardFooterButtons() {
         btnExecute.classList.remove('hidden');
         return;
     }
-    const last = wizardStepIndex >= currentWizard.steps.length - 1;
+    const uiCount = wizardUiStepCount();
+    const onSummary = isOnWizardSummaryStep();
+    const lastUi = wizardStepIndex >= uiCount - 1;
+    const showExecute = onSummary || (!hasWizardSummaryStep() && lastUi);
     btnWizardPrev.classList.toggle('hidden', wizardStepIndex <= 0);
-    btnWizardNext.classList.toggle('hidden', last);
-    btnExecute.classList.toggle('hidden', !last);
+    btnWizardNext.classList.toggle('hidden', showExecute);
+    btnExecute.classList.toggle('hidden', !showExecute);
     if (wizardFooterDivider) {
         wizardFooterDivider.classList.toggle('hidden', !isWizardModule());
     }
@@ -549,6 +589,10 @@ function syncWizardFooterButtons() {
 function renderWizardStepper() {
     if (!wizardStepperEl || !isWizardModule()) return;
     const steps = currentWizard.steps;
+    const uiSteps = steps.slice();
+    if (hasWizardSummaryStep()) {
+        uiSteps.push(getWizardSummaryStepMeta());
+    }
     const current = getCurrentWizardStepMeta();
     wizardStepperEl.innerHTML = '';
     wizardStepperEl.classList.remove('hidden');
@@ -556,14 +600,14 @@ function renderWizardStepper() {
     const summary = document.createElement('p');
     summary.className = 'wizard-stepper-summary';
     const currentLabel = current ? wizardStepDisplayLabel(current) : '';
-    summary.innerHTML = `Etapa <strong>${wizardStepIndex + 1}</strong> de <strong>${steps.length}</strong>${currentLabel ? ` - <strong>${escapeHtml(currentLabel)}</strong>` : ''}`;
+    summary.innerHTML = `Etapa <strong>${wizardStepIndex + 1}</strong> de <strong>${uiSteps.length}</strong>${currentLabel ? ` - <strong>${escapeHtml(currentLabel)}</strong>` : ''}`;
     wizardStepperEl.appendChild(summary);
 
     const track = document.createElement('div');
     track.className = 'wizard-stepper-track';
     track.setAttribute('role', 'list');
 
-    steps.forEach((step, idx) => {
+    uiSteps.forEach((step, idx) => {
         const isComplete = idx < wizardStepIndex;
         const isCurrent = idx === wizardStepIndex;
         const labelText = wizardStepDisplayLabel(step);
@@ -615,11 +659,16 @@ function escapeHtml(text) {
 
 function updateWizardStepVisibility() {
     if (!isWizardModule()) return;
+    const current = getCurrentWizardStepMeta();
     wizardStepPanes.forEach((pane, stepId) => {
-        const step = getCurrentWizardStepMeta();
-        const show = step && step.id === stepId;
+        const show = current && current.id === stepId;
         pane.classList.toggle('hidden', !show);
     });
+    if (isOnWizardSummaryStep()) {
+        gridContainer.classList.add('hidden');
+        currentQueryResult = null;
+        renderWizardSummary();
+    }
     refreshInterpolatedTexts();
     syncWizardFooterButtons();
 }
@@ -641,6 +690,14 @@ function setupWizardPanes() {
         dynamicForm.appendChild(pane);
         wizardStepPanes.set(step.id, pane);
     });
+    if (hasWizardSummaryStep()) {
+        const summaryPane = document.createElement('div');
+        summaryPane.className = 'wizard-step-pane hidden';
+        summaryPane.id = `wizard-pane-${WIZARD_SUMMARY_STEP_ID}`;
+        summaryPane.dataset.stepId = WIZARD_SUMMARY_STEP_ID;
+        dynamicForm.appendChild(summaryPane);
+        wizardStepPanes.set(WIZARD_SUMMARY_STEP_ID, summaryPane);
+    }
     wizardStepIndex = 0;
     wizardStepResults = {};
 }
@@ -666,6 +723,7 @@ function getWizardPaneForStep(stepId) {
 }
 
 function validateWizardStepAt(index) {
+    if (isWizardSummaryIndex(index)) return true;
     const step = getWizardStepMeta(index);
     if (!step) return true;
     const pane = getWizardPaneForStep(step.id);
@@ -726,10 +784,12 @@ async function handleWizardNext() {
     if (btnWizardNext) btnWizardNext.disabled = true;
 
     try {
-        if (step.hasQuery) {
+        const advancingToSummary = hasWizardSummaryStep()
+            && wizardStepIndex === currentWizard.steps.length - 1;
+        if (step.hasQuery && !advancingToSummary) {
             await runWizardStepQuery(step);
         }
-        if (wizardStepIndex < currentWizard.steps.length - 1) {
+        if (wizardStepIndex < wizardUiStepCount() - 1) {
             wizardStepIndex += 1;
             updateWizardStepVisibility();
         }
@@ -746,13 +806,13 @@ function handleWizardPrev() {
 
 function goToWizardStep(targetIndex) {
     if (!isWizardModule() || wizardNavBusy) return;
-    if (targetIndex < 0 || targetIndex >= currentWizard.steps.length) return;
+    if (targetIndex < 0 || targetIndex >= wizardUiStepCount()) return;
     if (targetIndex >= wizardStepIndex) return;
 
     wizardStepIndex = targetIndex;
     updateWizardStepVisibility();
     const step = getCurrentWizardStepMeta();
-    if (step) {
+    if (step && step.id !== WIZARD_SUMMARY_STEP_ID) {
         restoreWizardStepResult(step.id);
     }
 }
@@ -1292,6 +1352,117 @@ function wizardStepDisplayLabel(step) {
     if (!step) return '';
     const raw = step.label || step.id || '';
     return interpolateTemplate(raw, collectFormValues(true), getKnownFormFieldNames());
+}
+
+function formatWizardFieldDisplayValue(field) {
+    if (!field) return '—';
+    const typeUpper = String(field.type || '').toUpperCase();
+    if (typeUpper === 'CHAR' && field.size === 1) {
+        const radioSim = document.getElementById(`field_${field.field}_S`);
+        const radioNao = document.getElementById(`field_${field.field}_N`);
+        if (radioSim?.checked) return 'Sim';
+        if (radioNao?.checked) return 'Não';
+        return '—';
+    }
+    const select = document.getElementById(`field_${field.field}`);
+    if (select && select.tagName === 'SELECT') {
+        if (select.multiple) {
+            const texts = Array.from(select.selectedOptions)
+                .filter(opt => opt.value !== '')
+                .map(opt => opt.text);
+            return texts.length ? texts.join(', ') : '—';
+        }
+        const opt = select.selectedOptions[0];
+        if (!opt || opt.value === '') return '—';
+        return opt.text || opt.value;
+    }
+    const input = document.getElementById(`field_${field.field}`);
+    if (input) {
+        const raw = input.value;
+        if (raw === '' || raw === undefined || raw === null) return '—';
+        return String(raw);
+    }
+    const values = collectFormValues(true);
+    const val = values[field.field];
+    if (val === undefined || val === null || String(val).trim() === '') return '—';
+    return String(val);
+}
+
+function findWizardFieldByName(fieldName) {
+    const key = String(fieldName || '').toUpperCase();
+    return currentFields.find(f => String(f.field || '').toUpperCase() === key) || null;
+}
+
+function appendWizardSummaryTable(parent, fields) {
+    const table = document.createElement('table');
+    table.className = 'wizard-review-table';
+    const thead = document.createElement('thead');
+    thead.innerHTML = '<tr><th scope="col">Campo</th><th scope="col">Valor</th></tr>';
+    table.appendChild(thead);
+    const tbody = document.createElement('tbody');
+    const values = collectFormValues(true);
+    const known = getKnownFormFieldNames();
+    fields.forEach((field) => {
+        const tr = document.createElement('tr');
+        const labelTd = document.createElement('td');
+        labelTd.className = 'wizard-review-label';
+        labelTd.textContent = interpolateTemplate(field.label || field.field, values, known);
+        const valueTd = document.createElement('td');
+        valueTd.className = 'wizard-review-value';
+        valueTd.textContent = formatWizardFieldDisplayValue(field);
+        tr.appendChild(labelTd);
+        tr.appendChild(valueTd);
+        tbody.appendChild(tr);
+    });
+    table.appendChild(tbody);
+    parent.appendChild(table);
+}
+
+function renderWizardSummary() {
+    const pane = getWizardPaneForStep(WIZARD_SUMMARY_STEP_ID);
+    if (!pane || !isWizardModule()) return;
+    pane.innerHTML = '';
+    const wrap = document.createElement('div');
+    wrap.className = 'wizard-review';
+    const intro = document.createElement('p');
+    intro.className = 'wizard-review-intro';
+    intro.textContent = 'Revise os dados antes de executar.';
+    wrap.appendChild(intro);
+
+    const summarySubset = Array.isArray(currentWizard.summary?.fieldNames)
+        ? currentWizard.summary.fieldNames
+        : [];
+
+    if (summarySubset.length > 0) {
+        const section = document.createElement('section');
+        section.className = 'wizard-review-section';
+        const fields = summarySubset
+            .map(name => findWizardFieldByName(name))
+            .filter(f => f && !isContextField(f) && !f.hidden);
+        if (fields.length) {
+            appendWizardSummaryTable(section, fields);
+            wrap.appendChild(section);
+        }
+    } else {
+        currentWizard.steps.forEach((stepMeta) => {
+            const stepFields = currentFields.filter((f) => {
+                if (isContextField(f) || f.hidden) return false;
+                const sid = f.stepId || f.step_id;
+                return sid === stepMeta.id || (stepMeta.fieldNames || []).includes(f.field);
+            });
+            if (!stepFields.length) return;
+
+            const section = document.createElement('section');
+            section.className = 'wizard-review-section';
+            const heading = document.createElement('h3');
+            heading.className = 'wizard-review-step-title';
+            heading.textContent = wizardStepDisplayLabel(stepMeta);
+            section.appendChild(heading);
+            appendWizardSummaryTable(section, stepFields);
+            wrap.appendChild(section);
+        });
+    }
+    pane.appendChild(wrap);
 }
 
 function refreshInterpolatedTexts() {
@@ -2637,7 +2808,10 @@ function handleExecute() {
     if (isFormExecutionBusy()) return;
     if (isWizardModule()) {
         if (!validateWizardStepAt(wizardStepIndex)) return;
-        const step = getCurrentWizardStepMeta();
+        let step = getCurrentWizardStepMeta();
+        if (isOnWizardSummaryStep()) {
+            step = getLastWizardRealStepMeta();
+        }
         if (!step) return;
         executeQuery(collectFormValues(false), { stepId: step.id, stepLabel: wizardStepDisplayLabel(step) }).then(() => {
             wizardStepResults[step.id] = { data: currentQueryResult, duration: null };

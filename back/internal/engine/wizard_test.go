@@ -54,6 +54,117 @@ DECLARE @x INT
 	require.NotNil(t, meta)
 	assert.Len(t, meta.Steps, 2)
 	assert.Equal(t, []string{"NM_ARQUIVO", "IC_TAMANHO"}, meta.Steps[0].FieldNames)
+	assert.Nil(t, meta.Summary)
+}
+
+func TestParseWizardSummaryDirective(t *testing.T) {
+	sql := `--<STEP A>
+--<PROPERTIES>
+-- SELECT @?NM:VARCHAR:10:=:Nome
+--</PROPERTIES>
+--</STEP>
+--<WIZARD>
+-- STEP A: Etapa A
+-- SUMMARY: Confira os dados
+--</WIZARD>
+`
+	parser, err := ParseMetadata(sql)
+	require.NoError(t, err)
+	assert.True(t, parser.WizardSummary)
+	assert.Equal(t, "Confira os dados", parser.WizardSummaryLabel)
+	meta := parser.WizardMetadata()
+	require.NotNil(t, meta.Summary)
+	assert.Equal(t, "Confira os dados", meta.Summary.Label)
+	assert.Equal(t, "A", parser.LastStepID())
+}
+
+func TestParseWizardSummaryDefaultLabel(t *testing.T) {
+	sql := `--<STEP A>
+--<PROPERTIES>
+-- SELECT @?NM:VARCHAR:10:=:Nome
+--</PROPERTIES>
+--</STEP>
+--<WIZARD>
+-- STEP A: Etapa A
+-- SUMMARY
+--</WIZARD>
+`
+	parser, err := ParseMetadata(sql)
+	require.NoError(t, err)
+	meta := parser.WizardMetadata()
+	require.NotNil(t, meta.Summary)
+	assert.Equal(t, "Resumo", meta.Summary.Label)
+}
+
+func TestParseWizardSummaryFieldSubset(t *testing.T) {
+	sql := `--<STEP A>
+--<PROPERTIES>
+-- SELECT @?NM:VARCHAR:10:=:Nome
+-- SELECT @?DT_INICIAL:DATE:8:=:Data Inicial
+--</PROPERTIES>
+--</STEP>
+--<WIZARD>
+-- STEP A: Etapa A
+-- SUMMARY NM, DT_INICIAL
+--</WIZARD>
+`
+	parser, err := ParseMetadata(sql)
+	require.NoError(t, err)
+	meta := parser.WizardMetadata()
+	require.NotNil(t, meta.Summary)
+	assert.Equal(t, []string{"NM", "DT_INICIAL"}, meta.Summary.FieldNames)
+}
+
+func TestParseWizardSummaryFieldSubsetWithLabel(t *testing.T) {
+	sql := `--<STEP A>
+--<PROPERTIES>
+-- SELECT @?NM:VARCHAR:10:=:Nome
+--</PROPERTIES>
+--</STEP>
+--<WIZARD>
+-- STEP A: Etapa A
+-- SUMMARY NM: Confira
+--</WIZARD>
+`
+	parser, err := ParseMetadata(sql)
+	require.NoError(t, err)
+	meta := parser.WizardMetadata()
+	require.NotNil(t, meta.Summary)
+	assert.Equal(t, "Confira", meta.Summary.Label)
+	assert.Equal(t, []string{"NM"}, meta.Summary.FieldNames)
+}
+
+func TestParseWizardSummaryUnknownField(t *testing.T) {
+	sql := `--<STEP A>
+--<PROPERTIES>
+-- SELECT @?NM:VARCHAR:10:=:Nome
+--</PROPERTIES>
+--</STEP>
+--<WIZARD>
+-- STEP A: Etapa A
+-- SUMMARY NM, INEXISTENTE
+--</WIZARD>
+`
+	_, err := ParseMetadata(sql)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "inexistente")
+}
+
+func TestParseWizardDuplicateSummary(t *testing.T) {
+	sql := `--<STEP A>
+--<PROPERTIES>
+-- SELECT @?NM:VARCHAR:10:=:Nome
+--</PROPERTIES>
+--</STEP>
+--<WIZARD>
+-- STEP A: Etapa A
+-- SUMMARY
+-- SUMMARY
+--</WIZARD>
+`
+	_, err := ParseMetadata(sql)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "SUMMARY duplicada")
 }
 
 func TestParseStepsWithoutWizardBlockNotWizardMode(t *testing.T) {

@@ -31,9 +31,156 @@ func wizardBlockRegexFor(prefix string) *regexp.Regexp {
 }
 
 var wizardStepLineRegex = regexp.MustCompile(`(?i)^STEP\s+([A-Za-z][A-Za-z0-9_]*)\s*:\s*(.+)$`)
+var wizardSummaryLineRegex = regexp.MustCompile(`(?i)^SUMMARY\s*(.*)$`)
+var wizardFieldNameTokenRegex = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+var wizardSummaryFieldsWithLabelRegex = regexp.MustCompile(`(?i)^([A-Za-z_][A-Za-z0-9_]*(?:\s*,\s*[A-Za-z_][A-Za-z0-9_]*)+)\s*:\s*(.+)$`)
 
 func hasWizardBlock(content, linePrefix string) bool {
 	return wizardBlockRegexFor(linePrefix).FindStringIndex(content) != nil
+}
+
+const defaultWizardSummaryLabel = "Resumo"
+
+func splitWizardSummaryFieldList(raw string) ([]string, error) {
+	parts := strings.Split(raw, ",")
+	out := make([]string, 0, len(parts))
+	seen := make(map[string]bool)
+	for _, p := range parts {
+		name := strings.TrimSpace(p)
+		if name == "" {
+			return nil, fmt.Errorf("lista de campos SUMMARY inválida")
+		}
+		if !wizardFieldNameTokenRegex.MatchString(name) {
+			return nil, fmt.Errorf("lista de campos SUMMARY inválida")
+		}
+		key := strings.ToUpper(name)
+		if seen[key] {
+			return nil, fmt.Errorf("campo %q duplicado na diretiva SUMMARY", name)
+		}
+		seen[key] = true
+		out = append(out, name)
+	}
+	return out, nil
+}
+
+func isWizardSummaryFieldList(raw string) bool {
+	_, err := splitWizardSummaryFieldList(raw)
+	return err == nil
+}
+
+func parseSummaryDirectiveArgs(args string) (label string, fields []string, err error) {
+	label = defaultWizardSummaryLabel
+	args = strings.TrimSpace(args)
+	if args == "" {
+		return label, nil, nil
+	}
+	if strings.HasPrefix(args, ":") {
+		text := strings.TrimSpace(strings.TrimPrefix(args, ":"))
+		if text == "" {
+			return "", nil, fmt.Errorf("diretiva SUMMARY com rótulo vazio")
+		}
+		if isWizardSummaryFieldList(text) {
+			fields, err = splitWizardSummaryFieldList(text)
+			return label, fields, err
+		}
+		return text, nil, nil
+	}
+	if m := wizardSummaryFieldsWithLabelRegex.FindStringSubmatch(args); len(m) >= 3 {
+		fields, err = splitWizardSummaryFieldList(m[1])
+		if err != nil {
+			return "", nil, err
+		}
+		return strings.TrimSpace(m[2]), fields, nil
+	}
+	if isWizardSummaryFieldList(args) {
+		fields, err = splitWizardSummaryFieldList(args)
+		return label, fields, err
+	}
+	if strings.Contains(args, ":") {
+		left, right, ok := strings.Cut(args, ":")
+		if ok {
+			left = strings.TrimSpace(left)
+			right = strings.TrimSpace(right)
+			if left != "" && isWizardSummaryFieldList(left) {
+				fields, err = splitWizardSummaryFieldList(left)
+				if err != nil {
+					return "", nil, err
+				}
+				if right == "" {
+					return "", nil, fmt.Errorf("diretiva SUMMARY com rótulo vazio")
+				}
+				return right, fields, nil
+			}
+		}
+	}
+	if strings.HasPrefix(strings.ToUpper(args), "SUMMARY") {
+		return "", nil, fmt.Errorf("diretiva SUMMARY inválida")
+	}
+	return args, nil, nil
+}
+
+func parseWizardSummary(content, linePrefix string) (enabled bool, label string, fields []string, err error) {
+	re := wizardBlockRegexFor(linePrefix)
+	match := re.FindStringSubmatch(content)
+	if len(match) < 2 {
+		return false, "", nil, nil
+	}
+	var found bool
+	var summaryLabel string
+	var summaryFields []string
+	for _, line := range strings.Split(match[1], "\n") {
+		line = strings.TrimSpace(line)
+		if !isLineComment(line, linePrefix) {
+			continue
+		}
+		trimmed := strings.TrimSpace(strings.TrimPrefix(line, linePrefix))
+		sub := wizardSummaryLineRegex.FindStringSubmatch(trimmed)
+		if sub == nil {
+			continue
+		}
+		if found {
+			return false, "", nil, fmt.Errorf("diretiva SUMMARY duplicada no bloco WIZARD")
+		}
+		found = true
+		argPart := ""
+		if len(sub) >= 2 {
+			argPart = sub[1]
+		}
+		summaryLabel, summaryFields, err = parseSummaryDirectiveArgs(argPart)
+		if err != nil {
+			return false, "", nil, err
+		}
+	}
+	if !found {
+		return false, "", nil, nil
+	}
+	return true, summaryLabel, summaryFields, nil
+}
+
+func validateWizardSummaryFields(fieldNames []string, wizardFields []domain.Field) error {
+	if len(fieldNames) == 0 {
+		return nil
+	}
+	byName := make(map[string]struct{}, len(wizardFields))
+	for _, f := range wizardFields {
+		byName[strings.ToUpper(f.Field)] = struct{}{}
+	}
+	for _, name := range fieldNames {
+		if _, ok := byName[strings.ToUpper(name)]; !ok {
+			return fmt.Errorf("SUMMARY referencia campo inexistente %q", name)
+		}
+		var meta *domain.Field
+		for i := range wizardFields {
+			if strings.EqualFold(wizardFields[i].Field, name) {
+				meta = &wizardFields[i]
+				break
+			}
+		}
+		if meta != nil && meta.Hidden {
+			return fmt.Errorf("SUMMARY não pode listar campo oculto %q", name)
+		}
+	}
+	return nil
 }
 
 func parseWizardLabels(content, linePrefix string) map[string]string {
@@ -296,6 +443,18 @@ func (p *SQLParser) WizardMetadata() *domain.WizardMetadata {
 			ResultType: st.ResultType,
 			FieldNames: names,
 		})
+	}
+	if p.WizardSummary {
+		meta.Summary = &domain.WizardSummaryMeta{
+			Label:      p.WizardSummaryLabel,
+			FieldNames: append([]string(nil), p.WizardSummaryFields...),
+		}
+		if meta.Summary.Label == "" {
+			meta.Summary.Label = defaultWizardSummaryLabel
+		}
+		if len(meta.Summary.FieldNames) == 0 {
+			meta.Summary.FieldNames = nil
+		}
 	}
 	return meta
 }

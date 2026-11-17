@@ -1431,6 +1431,57 @@ button.wizard-stepper-item {
     display: none;
 }
 
+.wizard-review {
+    margin-top: 4px;
+}
+
+.wizard-review-intro {
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+    margin: 0 0 16px;
+}
+
+.wizard-review-section + .wizard-review-section {
+    margin-top: 20px;
+}
+
+.wizard-review-step-title {
+    font-size: 0.9375rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin: 0 0 8px;
+}
+
+.wizard-review-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.875rem;
+}
+
+.wizard-review-table th,
+.wizard-review-table td {
+    border: 1px solid var(--border-color);
+    padding: 8px 12px;
+    text-align: left;
+    vertical-align: top;
+}
+
+.wizard-review-table th {
+    background: var(--bg-subtle, var(--bg-surface));
+    color: var(--text-secondary);
+    font-weight: 600;
+}
+
+.wizard-review-label {
+    width: 42%;
+    color: var(--text-primary);
+}
+
+.wizard-review-value {
+    color: var(--text-secondary);
+    word-break: break-word;
+}
+
 /* ==========================================================================
    Botões
    ========================================================================== */

@@ -305,7 +305,7 @@ After the user fills `NM_ARQUIVO` on step 1, the step 2 tooltip and stepper labe
 
 ### Guided wizard (`STEP` / `WIZARD`)
 
-Use multiple **steps** when a module should collect parameters in stages and optionally run SQL between steps. The UI shows a stepper with **Anterior**, **Próximo**, and **Executar** (on the last step only).
+Use multiple **steps** when a module should collect parameters in stages and optionally run SQL between steps. The UI shows a stepper with **Anterior**, **Próximo**, and **Executar** (on the last step, or on the optional summary screen — see below).
 
 Wrap each step in `--<STEP StepId>` … `--</STEP>`. Each step contains its own `--<PROPERTIES>` block (same field syntax as above). Optional SQL (or script body) between `</PROPERTIES>` and `</STEP>` runs when the user clicks **Próximo** or **Executar** for that step (`POST /api/queries/...?step=StepId`).
 
@@ -332,6 +332,37 @@ SELECT @NM_ARQUIVO AS Arquivo
 -- STEP Confirmacao: Confirma dos dados
 --</WIZARD>
 ```
+
+#### Optional summary step (`SUMMARY`)
+
+Only when explicitly requested, add a `SUMMARY` line inside `--<WIZARD>`. The UI then adds a **final** screen (after all real steps) with a table of field **labels** and friendly values for review. **Executar** appears only on that screen; **Próximo** on the last real step advances to the summary **without** running that step’s SQL (intermediate steps still run SQL on **Próximo** as usual). Execution uses the same `step=` as the last real step.
+
+```sql
+--<WIZARD>
+-- STEP ListarValores: Lista de valores
+-- STEP ValidarLista: Validação
+-- STEP TipoArquivo: Tipo de Arquivo
+-- SUMMARY
+--</WIZARD>
+```
+
+Optional label (default **Resumo**):
+
+```sql
+-- SUMMARY: Confira os dados
+```
+
+Optional **field subset** (comma-separated variable names). When omitted, every visible field from all steps is shown, grouped by step. When listed, only those fields appear, in the given order:
+
+```sql
+-- SUMMARY NM_ARQUIVO, DT_INICIAL
+-- SUMMARY NM_ARQUIVO, DT_INICIAL: Confira os dados
+-- SUMMARY: NM_ARQUIVO, DT_INICIAL
+```
+
+Unknown field names fail at parse time. Hidden/`CONTEXT` fields cannot be listed.
+
+Omit `SUMMARY` entirely for the previous behavior (**Executar** on the last real step). Shell/PowerShell use `# SUMMARY` (or `# SUMMARY: …`) inside `#<WIZARD>`.
 
 Rules:
 

@@ -22,7 +22,10 @@ type SQLParser struct {
 	Fields      []domain.Field
 	Lookups       map[string]string
 	Steps         []StepDefinition
-	WizardEnabled bool // true only when --<WIZARD> ... --</WIZARD> is present
+	WizardEnabled   bool   // true only when --<WIZARD> ... --</WIZARD> is present
+	WizardSummary        bool     // true when WIZARD block contains SUMMARY directive
+	WizardSummaryLabel   string
+	WizardSummaryFields  []string // empty = show all visible wizard fields
 }
 
 var (
@@ -285,6 +288,20 @@ func ParseMetadataForKind(content, kind string) (*SQLParser, error) {
 		parser.WizardEnabled = hasWizardBlock(content, d.linePrefix)
 		for _, st := range steps {
 			parser.Fields = append(parser.Fields, st.Fields...)
+		}
+		if parser.WizardEnabled {
+			summaryOn, summaryLabel, summaryFields, sumErr := parseWizardSummary(content, d.linePrefix)
+			if sumErr != nil {
+				return nil, sumErr
+			}
+			parser.WizardSummary = summaryOn
+			parser.WizardSummaryLabel = summaryLabel
+			parser.WizardSummaryFields = summaryFields
+			if summaryOn && len(summaryFields) > 0 {
+				if err := validateWizardSummaryFields(summaryFields, parser.Fields); err != nil {
+					return nil, err
+				}
+			}
 		}
 		return parser, nil
 	}

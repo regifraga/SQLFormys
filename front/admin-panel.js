@@ -141,6 +141,7 @@ Write-Output "Valor: $env:NM_EXEMPLO"
 --</STEP>
 --<WIZARD>
 -- STEP Passo1: Primeiro passo
+-- SUMMARY
 --</WIZARD>
 
 --<PROPERTIES>
