@@ -64,6 +64,7 @@ let activeFormExecutionAbort = null;
 let formExecutionIdleResolvers = [];
 let formExecuteButtonLabel = '';
 let currentExecutionDurationMs = null;
+let currentConfirm = null;
 
 function isFormExecutionBusy() {
     return formExecutionCount > 0;
@@ -886,6 +887,7 @@ async function loadFormFields(queryPath, moduleTitle, moduleKind = 'sql') {
         currentFields = fields;
         currentQueryLookups = data.lookups || {};
         currentWizard = data.wizard || null;
+        currentConfirm = data.confirm || null;
         wizardStepIndex = 0;
         wizardStepResults = {};
         wizardResultStepLabel = '';
@@ -904,7 +906,7 @@ async function loadFormFields(queryPath, moduleTitle, moduleKind = 'sql') {
             syncFormPinsDock();
         }
 
-        if (executeMode.toUpperCase() === 'AUTO' && !isWizardModule()) {
+        if (executeMode.toUpperCase() === 'AUTO' && !isWizardModule() && !currentConfirm) {
             handleExecute();
         }
 
@@ -2562,6 +2564,7 @@ function renderForm(queryPath, moduleTitle, fields, description = '', executeMod
         btnExecute.disabled = false;
         btnExecute.innerText = 'Executar';
     }
+    syncExecuteConfirmButtonStyle();
 
     const visibleFields = (fields || []).filter(field => !isContextField(field));
     if (!fields || fields.length === 0) {
@@ -2897,10 +2900,81 @@ function handleClear() {
     refreshInterpolatedTexts();
 }
 
-function handleExecute() {
+function defaultExecuteConfirmMessage(type) {
+    const t = String(type || 'CONFIRM').toUpperCase();
+    if (t === 'WARNING') return 'Esta ação pode ter efeitos indesejados. Deseja continuar?';
+    if (t === 'DANGER') return 'Esta ação é destrutiva e pode não ser revertida. Deseja continuar?';
+    return 'Deseja realmente executar este módulo?';
+}
+
+function executeConfirmModalCopy(meta) {
+    const type = String((meta && meta.type) || 'CONFIRM').toUpperCase();
+    const custom = meta && meta.message ? String(meta.message).trim() : '';
+    const body = custom
+        ? interpolateTemplate(custom, collectFormValues(true), getKnownFormFieldNames())
+        : defaultExecuteConfirmMessage(type);
+    const titles = { CONFIRM: 'Confirmar', WARNING: 'Atenção', DANGER: 'Cuidado' };
+    const primaryLabels = { CONFIRM: 'Executar', WARNING: 'Executar', DANGER: 'Executar mesmo assim' };
+    const tones = { CONFIRM: 'confirm', WARNING: 'warning', DANGER: 'danger' };
+    return {
+        title: titles[type] || titles.CONFIRM,
+        body,
+        primaryLabel: primaryLabels[type] || primaryLabels.CONFIRM,
+        tone: tones[type] || tones.CONFIRM,
+    };
+}
+
+function syncExecuteConfirmButtonStyle() {
+    if (!btnExecute) return;
+    btnExecute.classList.remove('execute-confirm-warning', 'execute-confirm-danger');
+    const type = currentConfirm && currentConfirm.type
+        ? String(currentConfirm.type).toUpperCase()
+        : '';
+    if (type === 'WARNING') {
+        btnExecute.classList.add('execute-confirm-warning');
+    } else if (type === 'DANGER') {
+        btnExecute.classList.add('execute-confirm-danger');
+    }
+}
+
+function promptExecuteConfirmation() {
+    if (!currentConfirm) {
+        return Promise.resolve(true);
+    }
+    if (typeof openAppModal !== 'function') {
+        return Promise.resolve(true);
+    }
+    const copy = executeConfirmModalCopy(currentConfirm);
+    return new Promise((resolve) => {
+        let settled = false;
+        const finish = (value) => {
+            if (settled) return;
+            settled = true;
+            resolve(value);
+        };
+        openAppModal({
+            title: copy.title,
+            body: copy.body,
+            primaryLabel: copy.primaryLabel,
+            secondaryLabel: 'Cancelar',
+            tone: copy.tone,
+            onPrimary: async () => {
+                finish(true);
+                return true;
+            },
+            onSecondary: async () => {
+                finish(false);
+            },
+        });
+    });
+}
+
+async function handleExecute() {
     if (isFormExecutionBusy()) return;
     if (isWizardModule()) {
         if (!validateWizardStepAt(wizardStepIndex)) return;
+        const confirmed = await promptExecuteConfirmation();
+        if (!confirmed) return;
         let step = getCurrentWizardStepMeta();
         if (isOnWizardSummaryStep()) {
             step = getLastWizardRealStepMeta();
@@ -2916,6 +2990,8 @@ function handleExecute() {
         return;
     }
 
+    const confirmed = await promptExecuteConfirmation();
+    if (!confirmed) return;
     executeQuery(collectFormValues(false));
 }
 

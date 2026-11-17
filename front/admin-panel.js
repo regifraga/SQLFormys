@@ -24,13 +24,22 @@ function isAdminUser() {
     return Boolean(identity && identity.isAdmin);
 }
 
-function openAppModal({ title, body, primaryLabel = 'Confirmar', secondaryLabel = 'Cancelar', onPrimary, onSecondary }) {
+function openAppModal({ title, body, primaryLabel = 'Confirmar', secondaryLabel = 'Cancelar', onPrimary, onSecondary, tone }) {
     const backdrop = document.getElementById('app-modal-backdrop');
     const titleEl = document.getElementById('app-modal-title');
     const bodyEl = document.getElementById('app-modal-body');
     const footer = document.getElementById('app-modal-footer');
     const closeBtn = document.getElementById('app-modal-close');
+    const dialog = backdrop ? backdrop.querySelector('.app-modal') : null;
     if (!backdrop || !titleEl || !bodyEl || !footer) return;
+
+    if (dialog) {
+        dialog.classList.remove('app-modal--confirm', 'app-modal--warning', 'app-modal--danger');
+        const toneClass = tone && ['confirm', 'warning', 'danger'].includes(tone) ? `app-modal--${tone}` : '';
+        if (toneClass) {
+            dialog.classList.add(toneClass);
+        }
+    }
 
     titleEl.textContent = title;
     bodyEl.innerHTML = '';
@@ -47,7 +56,13 @@ function openAppModal({ title, body, primaryLabel = 'Confirmar', secondaryLabel 
     cancel.textContent = secondaryLabel;
     const ok = document.createElement('button');
     ok.type = 'button';
-    ok.className = 'btn btn-primary';
+    if (tone === 'danger') {
+        ok.className = 'btn btn-primary btn-danger';
+    } else if (tone === 'warning') {
+        ok.className = 'btn btn-primary btn-warning';
+    } else {
+        ok.className = 'btn btn-primary';
+    }
     ok.textContent = primaryLabel;
     footer.appendChild(cancel);
     footer.appendChild(ok);

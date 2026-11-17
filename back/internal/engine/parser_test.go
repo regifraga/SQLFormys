@@ -5,6 +5,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"sqlformys/internal/domain"
+	"sqlformys/internal/modulekind"
 )
 
 func TestNormalizeResultType(t *testing.T) {
@@ -362,6 +363,58 @@ func TestParseMetadata(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestParseConfirmDirective(t *testing.T) {
+	tests := []struct {
+		name      string
+		content   string
+		prefix    string
+		wantOK    bool
+		wantType  string
+		wantMsg   string
+	}{
+		{name: "bare sql", content: "--CONFIRM\nSELECT 1", wantOK: true, wantType: "CONFIRM"},
+		{name: "bare with equals", content: "--CONFIRM=\nSELECT 1", wantOK: true, wantType: "CONFIRM"},
+		{name: "type confirm", content: "--CONFIRM=CONFIRM\n", wantOK: true, wantType: "CONFIRM"},
+		{name: "warning message", content: "--CONFIRM=WARNING: Produção\n", wantOK: true, wantType: "WARNING", wantMsg: "Produção"},
+		{name: "danger message", content: "--CONFIRM=danger: apague tudo\n", wantOK: true, wantType: "DANGER", wantMsg: "apague tudo"},
+		{name: "shell bare", content: "#CONFIRM\n", prefix: "#", wantOK: true, wantType: "CONFIRM"},
+		{name: "invalid type", content: "--CONFIRM=MAYBE\n", wantOK: false},
+		{name: "missing tag", content: "--DESCRIPTION=x\n", wantOK: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			prefix := tt.prefix
+			if prefix == "" {
+				prefix = "--"
+			}
+			ct, msg, ok := parseConfirmDirective(tt.content, prefix)
+			assert.Equal(t, tt.wantOK, ok)
+			if !tt.wantOK {
+				return
+			}
+			assert.Equal(t, tt.wantType, ct)
+			assert.Equal(t, tt.wantMsg, msg)
+		})
+	}
+}
+
+func TestParseMetadataConfirmTag(t *testing.T) {
+	parser, err := ParseMetadata("--CONFIRM\n--CONFIRM=WARNING: Não use\nSELECT 1")
+	assert.NoError(t, err)
+	meta := parser.ConfirmMetadata()
+	assert.NotNil(t, meta)
+	assert.Equal(t, "CONFIRM", meta.Type)
+	assert.Equal(t, "", meta.Message)
+
+	parser2, err := ParseMetadataForKind("#CONFIRM=DANGER: irreversível\necho", modulekind.KindSH)
+	assert.NoError(t, err)
+	meta2 := parser2.ConfirmMetadata()
+	assert.NotNil(t, meta2)
+	assert.Equal(t, "DANGER", meta2.Type)
+	assert.Equal(t, "irreversível", meta2.Message)
 }
 
 func TestInjectValues(t *testing.T) {

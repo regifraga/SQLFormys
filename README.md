@@ -185,7 +185,11 @@ Place these at the top of the file (outside the properties block):
 |---|---|
 | `--SERVER=...` | Database host/connection. If omitted, the API default is used. |
 | `--DESCRIPTION=...` | Short text shown for the module in the UI. |
-| `--EXECUTE_MODE=AUTO` | Run as soon as the form is submitted (no extra confirmation). |
+| `--EXECUTE_MODE=AUTO` | Run as soon as the form is submitted (no extra confirmation). Ignored when `--CONFIRM` is present (user must click **Executar** and confirm). |
+| `--CONFIRM` | Before **Executar**, show a confirmation modal (type **CONFIRM**, default message). Same as `--CONFIRM=CONFIRM`. |
+| `--CONFIRM=CONFIRM` | Same as bare `--CONFIRM`. |
+| `--CONFIRM=WARNING: …` | Confirmation modal styled as a warning, with the text after the colon as the body (supports `{{FIELD}}` interpolation). |
+| `--CONFIRM=DANGER: …` | Destructive confirmation modal; primary action is **Executar mesmo assim**. |
 | `--RESULT_TYPE=...` | How query results are rendered in the UI (see values below). Defaults to **GRID** if missing or invalid. |
 | `--TIMEOUT=10` | Query timeout in seconds. Defaults to **60** if missing or invalid. |
 | `--INCLUDE=...` | Inlines another module from a **Library** folder (same `kind` as the host: `.sql`, `.sh`, or `.ps1`). You may use several lines. Path is logical (no extension), relative to `back/queries`. |
@@ -547,7 +551,9 @@ Script modules reuse the same **form tags** and **PROPERTIES** syntax, but metad
 | Tag | Purpose |
 | --- | --- |
 | `#DESCRIPTION=...` | Short text in the UI |
-| `#EXECUTE_MODE=AUTO` | Run on load (same as SQL) |
+| `#EXECUTE_MODE=AUTO` | Run on load (same as SQL). Ignored when `#CONFIRM` is set. |
+| `#CONFIRM` / `#CONFIRM=CONFIRM` | Same as `--CONFIRM` (modal before **Executar**). |
+| `#CONFIRM=WARNING: …` / `#CONFIRM=DANGER: …` | Same as SQL variants (`#` instead of `--`). |
 | `#RESULT_TYPE=...` | Defaults to **TEXT** (not GRID). Use **GRID** only if stdout is a JSON array of objects |
 | `#TIMEOUT=60` | Process timeout in seconds |
 | `#INCLUDE=...` | Same as `--INCLUDE` (Library fragments, same file kind) |

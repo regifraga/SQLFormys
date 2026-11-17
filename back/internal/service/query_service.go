@@ -143,6 +143,7 @@ func (s *queryService) GetMetadata(basePath, queryPath, kind string) (domain.Met
 		ExecuteMode: parser.ExecuteMode,
 		ResultType:  parser.ResultType,
 		Timeout:     parser.Timeout,
+		Confirm:     parser.ConfirmMetadata(),
 		Fields:      fields,
 		Lookups:     lookupsMeta,
 		Wizard:      parser.WizardMetadata(),

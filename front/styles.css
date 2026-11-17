@@ -3168,6 +3168,74 @@ button.meta-badge.pins:focus-visible {
     padding: 12px 18px 16px;
 }
 
+.app-modal--warning .app-modal-header h3 {
+    color: var(--warning, #d97706);
+}
+
+.app-modal--danger {
+    border-color: color-mix(in srgb, var(--danger, #dc2626) 35%, var(--border-color));
+}
+
+.app-modal--danger .app-modal-header h3 {
+    color: var(--danger, #dc2626);
+}
+
+.btn-danger {
+    background: var(--danger, #dc2626);
+    border-color: var(--danger, #dc2626);
+}
+
+.btn-warning {
+    background: var(--warning-btn-bg, #d97706);
+    border-color: var(--warning-btn-bg, #d97706);
+    color: var(--warning-btn-text, #1c1917);
+}
+
+.btn-warning:hover {
+    background: var(--warning-btn-hover, #b45309);
+    border-color: var(--warning-btn-hover, #b45309);
+    color: var(--warning-btn-text, #1c1917);
+    box-shadow: var(--shadow-sm);
+}
+
+.btn-danger:hover {
+    filter: brightness(0.95);
+}
+
+#btn-execute.execute-confirm-warning {
+    background-color: var(--warning-btn-bg, #d97706);
+    border-color: var(--warning-btn-bg, #d97706);
+    color: var(--warning-btn-text, #1c1917);
+    box-shadow: none;
+}
+
+#btn-execute.execute-confirm-warning:hover {
+    background-color: var(--warning-btn-hover, #b45309);
+    border-color: var(--warning-btn-hover, #b45309);
+    color: var(--warning-btn-text, #1c1917);
+    box-shadow: var(--shadow-sm);
+}
+
+#btn-execute.execute-confirm-warning:focus-visible {
+    outline-color: var(--warning-btn-bg, #d97706);
+}
+
+[data-theme="dark"] #btn-execute.execute-confirm-warning {
+    --warning-btn-bg: #f59e0b;
+    --warning-btn-hover: #d97706;
+    --warning-btn-text: #1c1917;
+}
+
+#btn-execute.execute-confirm-danger {
+    background: var(--danger, #dc2626);
+    border-color: var(--danger, #dc2626);
+    color: var(--btn-primary-text, #fff);
+}
+
+#btn-execute.execute-confirm-danger:hover {
+    filter: brightness(0.95);
+}
+
 .form-field-stack {
     display: flex;
     flex-direction: column;

@@ -18,6 +18,8 @@ type SQLParser struct {
 	Description string
 	ExecuteMode string
 	ResultType  string
+	ConfirmType    string
+	ConfirmMessage string
 	Timeout     int
 	Fields      []domain.Field
 	Lookups       map[string]string
@@ -51,6 +53,76 @@ var (
 
 func tagRegex(prefix, name string) *regexp.Regexp {
 	return regexp.MustCompile(`(?m)^` + regexp.QuoteMeta(prefix) + regexp.QuoteMeta(name) + `=(.*)$`)
+}
+
+var confirmTypes = map[string]struct{}{
+	"CONFIRM": {},
+	"WARNING": {},
+	"DANGER":  {},
+}
+
+func confirmDirectiveLineRegex(prefix string) *regexp.Regexp {
+	p := regexp.QuoteMeta(prefix)
+	return regexp.MustCompile(`^\s*` + p + `CONFIRM(?:\s*=\s*(.*))?\s*$`)
+}
+
+// StripConfirmDirectives removes CONFIRM header lines from module content.
+func StripConfirmDirectives(content, prefix string) string {
+	re := confirmDirectiveLineRegex(prefix)
+	var lines []string
+	for _, line := range strings.Split(content, "\n") {
+		if re.MatchString(line) {
+			continue
+		}
+		lines = append(lines, line)
+	}
+	return strings.Join(lines, "\n")
+}
+
+func parseConfirmDirective(content, prefix string) (confirmType, message string, ok bool) {
+	re := confirmDirectiveLineRegex(prefix)
+	var matches []string
+	for _, line := range strings.Split(content, "\n") {
+		if m := re.FindStringSubmatch(line); len(m) > 0 {
+			matches = m
+			break
+		}
+	}
+	if len(matches) == 0 {
+		return "", "", false
+	}
+	raw := ""
+	if len(matches) > 1 {
+		raw = strings.TrimSpace(matches[1])
+	}
+	if raw == "" || strings.EqualFold(raw, "CONFIRM") {
+		return "CONFIRM", "", true
+	}
+	colon := strings.Index(raw, ":")
+	var typePart, msgPart string
+	if colon < 0 {
+		typePart = raw
+	} else {
+		typePart = strings.TrimSpace(raw[:colon])
+		msgPart = strings.TrimSpace(raw[colon+1:])
+	}
+	typeNorm := strings.ToUpper(strings.TrimSpace(typePart))
+	if _, valid := confirmTypes[typeNorm]; !valid {
+		return "", "", false
+	}
+	return typeNorm, msgPart, true
+}
+
+// ConfirmMetadata returns execute confirmation metadata when --CONFIRM is present.
+func (p *SQLParser) ConfirmMetadata() *domain.ConfirmMetadata {
+	if p.ConfirmType == "" {
+		return nil
+	}
+	meta := &domain.ConfirmMetadata{Type: p.ConfirmType}
+	if strings.TrimSpace(p.ConfirmMessage) != "" {
+		meta.Message = p.ConfirmMessage
+	}
+	return meta
 }
 
 func propertiesBlockRegex(prefix string) *regexp.Regexp {
@@ -288,6 +360,11 @@ func ParseMetadataForKind(content, kind string) (*SQLParser, error) {
 
 	if executeModeMatch := d.executeModeRegex.FindStringSubmatch(content); len(executeModeMatch) > 1 {
 		parser.ExecuteMode = strings.TrimSpace(executeModeMatch[1])
+	}
+
+	if ct, msg, confirmOK := parseConfirmDirective(content, d.linePrefix); confirmOK {
+		parser.ConfirmType = ct
+		parser.ConfirmMessage = msg
 	}
 
 	if resultTypeMatch := d.resultTypeRegex.FindStringSubmatch(content); len(resultTypeMatch) > 1 {

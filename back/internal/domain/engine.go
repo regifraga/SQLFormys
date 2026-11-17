@@ -51,6 +51,12 @@ type TreeNode struct {
 	Children []TreeNode `json:"children,omitempty"`
 }
 
+// ConfirmMetadata signals the UI to ask for confirmation before execute.
+type ConfirmMetadata struct {
+	Type    string `json:"type"`
+	Message string `json:"message,omitempty"`
+}
+
 // MetadataResponse is the return object for the GET metadata endpoint
 type MetadataResponse struct {
 	Kind        string                    `json:"kind"`
@@ -59,6 +65,7 @@ type MetadataResponse struct {
 	ExecuteMode string                    `json:"executeMode"`
 	ResultType  string                    `json:"resultType"`
 	Timeout     int                       `json:"timeout"`
+	Confirm     *ConfirmMetadata          `json:"confirm,omitempty"`
 	Fields      []Field                   `json:"fields"`
 	Lookups     map[string]LookupMetadata `json:"lookups,omitempty"`
 	Wizard      *WizardMetadata           `json:"wizard,omitempty"`

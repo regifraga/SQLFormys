@@ -506,6 +506,7 @@ func extractResidualSQL(content string, d metadataDialect) string {
 	for _, tag := range []string{"SERVER", "TIMEOUT", "DESCRIPTION", "EXECUTE_MODE", "RESULT_TYPE", "INCLUDE"} {
 		out = tagRegex(d.linePrefix, tag).ReplaceAllString(out, "")
 	}
+	out = StripConfirmDirectives(out, d.linePrefix)
 	out = stripSqlServerDeclareBlock(out)
 	return strings.TrimSpace(out)
 }
