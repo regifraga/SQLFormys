@@ -67,13 +67,12 @@ func parseModuleMessageDirectives(content, prefix string) ([]domain.UserMessage,
 }
 
 func parseWizardMessages(content, linePrefix string, stepIDs map[string]string) ([]domain.UserMessage, error) {
-	re := wizardBlockRegexFor(linePrefix)
-	match := re.FindStringSubmatch(content)
-	if len(match) < 2 {
+	_, inner, ok := wizardBlockMatch(content, linePrefix)
+	if !ok {
 		return nil, nil
 	}
 	var out []domain.UserMessage
-	for _, line := range strings.Split(match[1], "\n") {
+	for _, line := range strings.Split(inner, "\n") {
 		line = strings.TrimSpace(line)
 		if !isLineComment(line, linePrefix) {
 			continue

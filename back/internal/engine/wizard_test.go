@@ -58,6 +58,56 @@ DECLARE @x INT
 	assert.Nil(t, meta.Summary)
 }
 
+func TestParseWizardNoStepperTag(t *testing.T) {
+	sql := `--<STEP A>
+--<PROPERTIES>
+-- SELECT @?NM:VARCHAR:10:=:Nome
+--</PROPERTIES>
+--</STEP>
+--<WIZARD NO-STEPPER>
+-- STEP A: Etapa A
+--</WIZARD>
+`
+	parser, err := ParseMetadata(sql)
+	require.NoError(t, err)
+	assert.True(t, parser.WizardHideStepper)
+	meta := parser.WizardMetadata()
+	require.NotNil(t, meta)
+	assert.True(t, meta.HideStepper)
+}
+
+func TestParseWizardNoStepperInnerLine(t *testing.T) {
+	sql := `--<STEP A>
+--<PROPERTIES>
+-- SELECT @?NM:VARCHAR:10:=:Nome
+--</PROPERTIES>
+--</STEP>
+--<WIZARD>
+-- NO-STEPPER
+-- STEP A: Etapa A
+--</WIZARD>
+`
+	parser, err := ParseMetadata(sql)
+	require.NoError(t, err)
+	assert.True(t, parser.WizardHideStepper)
+	assert.True(t, parser.HasWizard())
+}
+
+func TestParseWizardHideStepAreaAlias(t *testing.T) {
+	sql := `--<STEP A>
+--<PROPERTIES>
+-- SELECT @?NM:VARCHAR:10:=:Nome
+--</PROPERTIES>
+--</STEP>
+--<WIZARD hide-step-area>
+-- STEP A: Etapa A
+--</WIZARD>
+`
+	parser, err := ParseMetadata(sql)
+	require.NoError(t, err)
+	assert.True(t, parser.WizardHideStepper)
+}
+
 func TestParseWizardSummaryDirective(t *testing.T) {
 	sql := `--<STEP A>
 --<PROPERTIES>

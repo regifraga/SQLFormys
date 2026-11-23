@@ -49,8 +49,9 @@ type UserMessage struct {
 
 // WizardMetadata is returned when a module defines STEP/WIZARD blocks.
 type WizardMetadata struct {
-	Steps   []WizardStepMeta     `json:"steps"`
-	Summary *WizardSummaryMeta   `json:"summary,omitempty"`
+	Steps        []WizardStepMeta   `json:"steps"`
+	Summary      *WizardSummaryMeta `json:"summary,omitempty"`
+	HideStepper  bool               `json:"hideStepper,omitempty"` // opening tag NO-STEPPER: hide progress UI
 }
 
 // TreeNode represents a hierarchical node (folder or module) in the queries directory tree

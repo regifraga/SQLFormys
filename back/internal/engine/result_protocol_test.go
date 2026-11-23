@@ -72,6 +72,19 @@ func TestApplyResultProtocolMessageOnlyValidate(t *testing.T) {
 	assert.Empty(t, out.Messages)
 }
 
+func TestApplyResultProtocolUnknownICExecuteBlocks(t *testing.T) {
+	in := domain.QueryResult{
+		Columns: []string{"IC_EXECUTE"},
+		Rows: []map[string]interface{}{
+			{"IC_EXECUTE": "x"},
+		},
+		ResultType: "GRID",
+	}
+	out := ApplyResultProtocol(in)
+	require.NotNil(t, out.CanExecute)
+	assert.False(t, *out.CanExecute)
+}
+
 func TestApplyResultProtocolMessageOnlyDoesNotOverrideICExecute(t *testing.T) {
 	in := domain.QueryResult{
 		Columns: []string{"IC_EXECUTE", "DS_MESSAGE"},

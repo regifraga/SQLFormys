@@ -28,7 +28,87 @@ func stepBlockRegexFor(prefix string) *regexp.Regexp {
 
 func wizardBlockRegexFor(prefix string) *regexp.Regexp {
 	p := regexp.QuoteMeta(prefix)
-	return regexp.MustCompile(`(?si)` + p + `\s*<WIZARD>\s*\r?\n(.*?)\r?\n\s*` + p + `\s*</WIZARD>`)
+	return regexp.MustCompile(`(?si)` + p + `\s*<WIZARD(?:\s+([^>\r\n]*))?\s*>?\s*\r?\n(.*?)\r?\n\s*` + p + `\s*</WIZARD>`)
+}
+
+// wizardBlockMatch returns optional opening-tag attributes and inner block body.
+func wizardBlockMatch(content, linePrefix string) (attrs string, body string, ok bool) {
+	re := wizardBlockRegexFor(linePrefix)
+	match := re.FindStringSubmatch(content)
+	if len(match) < 3 {
+		return "", "", false
+	}
+	return strings.TrimSpace(match[1]), match[2], true
+}
+
+var wizardNoStepperFlagTokens = map[string]struct{}{
+	"NO-STEPPER":       {},
+	"HIDE-STEPPER":     {},
+	"HIDE-STEP-AREA":   {},
+	"HIDE-STEPPER-UI":  {},
+	"NO-STEPPER-UI":    {},
+}
+
+func parseWizardHideStepper(attrs string) bool {
+	if strings.TrimSpace(attrs) == "" {
+		return false
+	}
+	return parseWizardHideStepperTokens(attrs)
+}
+
+func parseWizardHideStepperTokens(attrs string) bool {
+	for _, tok := range strings.Fields(attrs) {
+		upper := strings.ToUpper(strings.TrimSpace(tok))
+		if _, ok := wizardNoStepperFlagTokens[upper]; ok {
+			return true
+		}
+		key, val, hasEq := strings.Cut(tok, "=")
+		if !hasEq {
+			continue
+		}
+		key = strings.ToUpper(strings.TrimSpace(key))
+		val = strings.ToUpper(strings.TrimSpace(val))
+		switch key {
+		case "UI", "STEPPER", "WIZARD":
+			switch val {
+			case "NO-STEPPER", "HIDE", "HIDDEN", "HIDE-STEPPER", "HIDE-STEP-AREA":
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func isWizardHideStepperDirectiveLine(trimmed string) bool {
+	trimmed = strings.TrimSpace(trimmed)
+	if trimmed == "" {
+		return false
+	}
+	upper := strings.ToUpper(trimmed)
+	if strings.HasPrefix(upper, "STEP ") ||
+		strings.HasPrefix(upper, "SUMMARY") ||
+		strings.HasPrefix(upper, "MESSAGE ") {
+		return false
+	}
+	return parseWizardHideStepper(trimmed)
+}
+
+// parseWizardUISettings reads hide-stepper flags from the opening tag and optional inner UI lines.
+func parseWizardUISettings(attrs, body, linePrefix string) bool {
+	if parseWizardHideStepper(attrs) {
+		return true
+	}
+	for _, line := range strings.Split(body, "\n") {
+		line = strings.TrimSpace(line)
+		if !isLineComment(line, linePrefix) {
+			continue
+		}
+		trimmed := strings.TrimSpace(strings.TrimPrefix(line, linePrefix))
+		if isWizardHideStepperDirectiveLine(trimmed) {
+			return true
+		}
+	}
+	return false
 }
 
 var wizardStepLineRegex = regexp.MustCompile(`(?i)^STEP\s+([A-Za-z][A-Za-z0-9_]*)\s*:\s*(.+)$`)
@@ -150,9 +230,8 @@ func parseSummaryDirectiveArgs(args string) (label string, fields []string, quer
 }
 
 func parseWizardSummary(content, linePrefix string) (enabled bool, label string, fields []string, queryName string, validateQueryName string, err error) {
-	re := wizardBlockRegexFor(linePrefix)
-	match := re.FindStringSubmatch(content)
-	if len(match) < 2 {
+	_, inner, ok := wizardBlockMatch(content, linePrefix)
+	if !ok {
 		return false, "", nil, "", "", nil
 	}
 	var found bool
@@ -160,7 +239,7 @@ func parseWizardSummary(content, linePrefix string) (enabled bool, label string,
 	var summaryFields []string
 	var summaryQuery string
 	var summaryValidate string
-	for _, line := range strings.Split(match[1], "\n") {
+	for _, line := range strings.Split(inner, "\n") {
 		line = strings.TrimSpace(line)
 		if !isLineComment(line, linePrefix) {
 			continue
@@ -216,13 +295,12 @@ func validateWizardSummaryFields(fieldNames []string, wizardFields []domain.Fiel
 }
 
 func parseWizardLabels(content, linePrefix string) map[string]string {
-	re := wizardBlockRegexFor(linePrefix)
-	match := re.FindStringSubmatch(content)
-	if len(match) < 2 {
+	_, inner, ok := wizardBlockMatch(content, linePrefix)
+	if !ok {
 		return nil
 	}
 	labels := make(map[string]string)
-	for _, line := range strings.Split(match[1], "\n") {
+	for _, line := range strings.Split(inner, "\n") {
 		line = strings.TrimSpace(line)
 		if !isLineComment(line, linePrefix) {
 			continue
@@ -471,9 +549,8 @@ func parseStepBlocks(content string, d metadataDialect, moduleDefaultResult stri
 	if labels != nil && len(labels) > 0 {
 		seen := make(map[string]bool)
 		orderedIDs = nil
-		wizardRe := wizardBlockRegexFor(d.linePrefix)
-		if wm := wizardRe.FindStringSubmatch(content); len(wm) > 1 {
-			for _, line := range strings.Split(wm[1], "\n") {
+		if _, inner, ok := wizardBlockMatch(content, d.linePrefix); ok {
+			for _, line := range strings.Split(inner, "\n") {
 				line = strings.TrimSpace(line)
 				if !isLineComment(line, d.linePrefix) {
 					continue
@@ -558,6 +635,7 @@ func (p *SQLParser) WizardMetadata() *domain.WizardMetadata {
 			FieldNames: names,
 		})
 	}
+	meta.HideStepper = p.WizardHideStepper
 	if p.WizardSummary {
 		meta.Summary = &domain.WizardSummaryMeta{
 			Label:             p.WizardSummaryLabel,

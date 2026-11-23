@@ -1460,6 +1460,20 @@ button.wizard-stepper-item {
     display: none;
 }
 
+.wizard-context-title {
+    margin: 0 0 16px;
+    font-size: 0.9375rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.wizard-review-title {
+    margin: 0 0 8px;
+    font-size: 1.05rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
 .wizard-review {
     margin-top: 4px;
 }
@@ -3071,6 +3085,9 @@ button.meta-badge.pins:focus-visible {
 .tree-admin-group-panel.open,
 .tree-admin-group-panel.sidebar-folder-panel.open {
     max-height: 480px;
+    overflow-x: hidden;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
 }
 
 .tree-admin-user-list {
@@ -3339,6 +3356,15 @@ button.meta-badge.pins:focus-visible {
 
 #btn-execute.execute-confirm-danger:hover {
     filter: brightness(0.95);
+}
+
+#btn-execute:disabled,
+#btn-execute[aria-disabled="true"] {
+    opacity: 0.55;
+    cursor: not-allowed;
+    pointer-events: none;
+    filter: grayscale(0.25);
+    box-shadow: none;
 }
 
 .form-field-stack {

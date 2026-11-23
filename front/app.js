@@ -18,6 +18,7 @@ const btnWizardPrev = document.getElementById('btn-wizard-prev');
 const btnWizardNext = document.getElementById('btn-wizard-next');
 const wizardFooterDivider = document.getElementById('wizard-footer-divider');
 const wizardStepperEl = document.getElementById('wizard-stepper');
+const wizardContextTitleEl = document.getElementById('wizard-context-title');
 const searchInput = document.getElementById('search-modules');
 const clearSearchBtn = document.getElementById('clear-search');
 const toggleSidebarFoldersBtn = document.getElementById('toggle-sidebar-folders');
@@ -69,6 +70,32 @@ let currentConfirm = null;
 let currentModuleMessages = [];
 let wizardSummaryCanExecute = null;
 let wizardSummaryGateMessage = '';
+let wizardSummaryRenderGeneration = 0;
+
+function wizardSummaryHasValidateGate() {
+    return Boolean(String(currentWizard?.summary?.validateQueryName || '').trim());
+}
+
+function wizardSummaryHasExecuteGate() {
+    return Boolean(
+        wizardSummaryHasValidateGate()
+        || String(currentWizard?.summary?.queryName || '').trim()
+    );
+}
+
+function summaryPreviewHasRows(previewData) {
+    const columns = Array.isArray(previewData?.columns) ? previewData.columns : [];
+    const rows = Array.isArray(previewData?.rows) ? previewData.rows : [];
+    return columns.length > 0 && rows.length > 0;
+}
+
+function isWizardSummaryExecuteBlocked() {
+    if (!isOnWizardSummaryStep() || !hasWizardSummaryStep()) return false;
+    if (wizardSummaryHasExecuteGate()) {
+        return wizardSummaryCanExecute !== true;
+    }
+    return wizardSummaryCanExecute === false;
+}
 
 function isFormExecutionBusy() {
     return formExecutionCount > 0;
@@ -112,15 +139,17 @@ function syncFormExecutionLockState() {
         formEl.setAttribute('aria-busy', busy ? 'true' : 'false');
     }
     if (btnExecute) {
-        const summaryBlocked = isOnWizardSummaryStep()
-            && hasWizardSummaryStep()
-            && wizardSummaryCanExecute === false;
+        const summaryBlocked = isWizardSummaryExecuteBlocked();
         btnExecute.disabled = busy || summaryBlocked;
         if (busy && !btnExecute.classList.contains('hidden')) {
             btnExecute.innerText = 'Executando...';
             btnExecute.setAttribute('aria-disabled', 'true');
         } else if (!busy) {
-            btnExecute.removeAttribute('aria-disabled');
+            if (summaryBlocked) {
+                btnExecute.setAttribute('aria-disabled', 'true');
+            } else {
+                btnExecute.removeAttribute('aria-disabled');
+            }
             if (formExecuteButtonLabel) {
                 btnExecute.innerText = formExecuteButtonLabel;
             }
@@ -441,6 +470,8 @@ document.addEventListener('DOMContentLoaded', async () => {
                 && !btnWizardNext.classList.contains('hidden');
             if (wizardUsesNext) {
                 void handleWizardNext();
+            } else if (btnExecute && (btnExecute.disabled || btnExecute.getAttribute('aria-disabled') === 'true')) {
+                return;
             } else {
                 handleExecute();
             }
@@ -593,6 +624,10 @@ function resetWizardState() {
         wizardStepperEl.innerHTML = '';
         wizardStepperEl.classList.add('hidden');
     }
+    if (wizardContextTitleEl) {
+        wizardContextTitleEl.textContent = '';
+        wizardContextTitleEl.classList.add('hidden');
+    }
     syncWizardFooterButtons();
 }
 
@@ -619,8 +654,17 @@ function syncWizardFooterButtons() {
     }
 }
 
+function wizardHideStepper() {
+    return Boolean(currentWizard?.hideStepper);
+}
+
 function renderWizardStepper() {
     if (!wizardStepperEl || !isWizardModule()) return;
+    if (wizardHideStepper()) {
+        wizardStepperEl.classList.add('hidden');
+        wizardStepperEl.innerHTML = '';
+        return;
+    }
     const steps = currentWizard.steps;
     const uiSteps = steps.slice();
     if (hasWizardSummaryStep()) {
@@ -684,6 +728,34 @@ function renderWizardStepper() {
     wizardStepperEl.appendChild(track);
 }
 
+function renderWizardContextTitle() {
+    if (!wizardContextTitleEl || !isWizardModule()) {
+        if (wizardContextTitleEl) {
+            wizardContextTitleEl.textContent = '';
+            wizardContextTitleEl.classList.add('hidden');
+        }
+        return;
+    }
+    if (!wizardHideStepper()) {
+        wizardContextTitleEl.textContent = '';
+        wizardContextTitleEl.classList.add('hidden');
+        return;
+    }
+    const current = getCurrentWizardStepMeta();
+    if (!current) {
+        wizardContextTitleEl.textContent = '';
+        wizardContextTitleEl.classList.add('hidden');
+        return;
+    }
+    const label = wizardStepDisplayLabel(current);
+    const uiCount = wizardUiStepCount();
+    const stepNum = wizardStepIndex + 1;
+    wizardContextTitleEl.textContent = label
+        ? `Etapa ${stepNum} de ${uiCount} — ${label}`
+        : `Etapa ${stepNum} de ${uiCount}`;
+    wizardContextTitleEl.classList.remove('hidden');
+}
+
 function escapeHtml(text) {
     const div = document.createElement('div');
     div.textContent = text;
@@ -703,6 +775,7 @@ function updateWizardStepVisibility() {
         void renderWizardSummary();
     }
     refreshInterpolatedTexts();
+    renderWizardContextTitle();
     syncWizardFooterButtons();
 }
 
@@ -1558,25 +1631,38 @@ async function fetchNamedQueryPreview(queryName) {
 async function renderWizardSummary() {
     const pane = getWizardPaneForStep(WIZARD_SUMMARY_STEP_ID);
     if (!pane || !isWizardModule()) return;
+    const generation = ++wizardSummaryRenderGeneration;
     pane.innerHTML = '';
     wizardSummaryCanExecute = null;
     wizardSummaryGateMessage = '';
 
+    const summaryQueryName = String(currentWizard.summary?.queryName || '').trim();
+    const validateQueryName = String(currentWizard.summary?.validateQueryName || '').trim();
+    if (validateQueryName) {
+        wizardSummaryCanExecute = false;
+        syncFormExecutionLockState();
+    }
+
     const wrap = document.createElement('div');
     wrap.className = 'wizard-review';
+    const heading = document.createElement('h2');
+    heading.className = 'wizard-review-title';
+    const summaryLabel = currentWizard.summary?.label
+        ? wizardStepDisplayLabel(getWizardSummaryStepMeta())
+        : 'Resumo';
+    heading.textContent = summaryLabel;
+    wrap.appendChild(heading);
     const intro = document.createElement('p');
     intro.className = 'wizard-review-intro';
     intro.textContent = 'Revise os dados antes de executar.';
     wrap.appendChild(intro);
 
-    const summaryQueryName = String(currentWizard.summary?.queryName || '').trim();
-    const validateQueryName = String(currentWizard.summary?.validateQueryName || '').trim();
     const gateBannerHost = document.createElement('div');
     gateBannerHost.className = 'wizard-summary-gate-host';
     wrap.appendChild(gateBannerHost);
 
     const showGateBanner = () => {
-        if (wizardSummaryCanExecute !== false || !wizardSummaryGateMessage) return;
+        if (!wizardSummaryGateMessage || wizardSummaryCanExecute === true) return;
         const banner = document.createElement('div');
         banner.className = 'wizard-summary-gate-banner';
         banner.setAttribute('role', 'status');
@@ -1607,9 +1693,12 @@ async function renderWizardSummary() {
             } else {
                 section.remove();
             }
-            applyWizardSummaryExecuteGate(previewData, validateData);
-            showGateBanner();
+            if (generation === wizardSummaryRenderGeneration) {
+                applyWizardSummaryExecuteGate(previewData, validateData);
+                showGateBanner();
+            }
         } catch (err) {
+            if (generation !== wizardSummaryRenderGeneration) return;
             if (section.isConnected) {
                 loading.textContent = err?.message || 'Não foi possível carregar a consulta de resumo.';
             }
@@ -1620,6 +1709,7 @@ async function renderWizardSummary() {
                 showGateBanner();
             }
         }
+        if (generation !== wizardSummaryRenderGeneration) return;
         if (summaryQueryName) {
             pane.appendChild(wrap);
             return;
@@ -1685,6 +1775,7 @@ function refreshInterpolatedTexts() {
     }
     if (isWizardModule()) {
         renderWizardStepper();
+        renderWizardContextTitle();
     }
 }
 
@@ -3148,15 +3239,49 @@ async function afterModuleFormReady() {
     }
 }
 
+function protocolRowValue(row, names) {
+    if (!row || typeof row !== 'object') return undefined;
+    const keys = Object.keys(row);
+    for (const name of names) {
+        const found = keys.find((k) => String(k).toUpperCase() === String(name).toUpperCase());
+        if (found) return row[found];
+    }
+    return undefined;
+}
+
+function parseProtocolCanExecuteFlag(raw) {
+    if (raw === true) return true;
+    if (raw === false) return false;
+    if (raw === 1) return true;
+    if (raw === 0) return false;
+    const s = String(raw ?? '').trim().toLowerCase();
+    if (!s) return null;
+    if (['s', 'y', '1', 'true', 'sim', 'yes', 'ok'].includes(s)) return true;
+    if (['n', '0', 'false', 'nao', 'não', 'no'].includes(s)) return false;
+    return null;
+}
+
 function resolveSummaryCanExecuteFromResult(data, strictValidate) {
     if (!data) {
         return strictValidate ? false : null;
     }
-    if (data.canExecute === true) return true;
-    if (data.canExecute === false) return false;
-    if (strictValidate) {
-        return false;
+    const fromFlag = parseProtocolCanExecuteFlag(data.canExecute);
+    if (fromFlag === true) return true;
+    if (fromFlag === false) return false;
+    const row = Array.isArray(data.rows) ? data.rows[0] : null;
+    if (row) {
+        const execRaw = protocolRowValue(row, ['IC_EXECUTE', '__CAN_EXECUTE']);
+        if (execRaw !== undefined) {
+            const parsed = parseProtocolCanExecuteFlag(execRaw);
+            if (parsed === true) return true;
+            return false;
+        }
+        const msgRaw = protocolRowValue(row, ['DS_MESSAGE', '__MESSAGE']);
+        if (String(msgRaw ?? '').trim()) return false;
     }
+    const runtimeMsg = String(data.messages?.[0]?.message || '').trim();
+    if (runtimeMsg && strictValidate) return false;
+    if (strictValidate) return false;
     return null;
 }
 
@@ -3175,6 +3300,7 @@ function mergeValidatedUserMessage(staticMsg, validateData) {
 
 function applyWizardSummaryExecuteGate(previewData, validateData) {
     const validateName = String(currentWizard?.summary?.validateQueryName || '').trim();
+    const summaryQueryName = String(currentWizard?.summary?.queryName || '').trim();
     let allow = true;
     let gateMsg = '';
     if (validateName) {
@@ -3184,11 +3310,17 @@ function applyWizardSummaryExecuteGate(previewData, validateData) {
             gateMsg = validateData?.messages?.[0]?.message
                 || 'Validação não permitiu a execução.';
         }
-    } else if (String(currentWizard?.summary?.queryName || '').trim()) {
-        const verdict = resolveSummaryCanExecuteFromResult(previewData, false);
-        if (verdict === false) {
+    }
+    if (allow && summaryQueryName) {
+        const previewVerdict = resolveSummaryCanExecuteFromResult(previewData, false);
+        if (previewVerdict === false) {
             allow = false;
-            gateMsg = previewData?.messages?.[0]?.message || 'Execução não permitida pelos dados do resumo.';
+            gateMsg = previewData?.messages?.[0]?.message
+                || 'Execução não permitida pelos dados do resumo.';
+        } else if (!summaryPreviewHasRows(previewData)) {
+            allow = false;
+            gateMsg = previewData?.messages?.[0]?.message
+                || 'Nenhum registro para executar.';
         }
     }
     wizardSummaryCanExecute = allow;
@@ -3266,13 +3398,47 @@ function promptExecuteConfirmation() {
     });
 }
 
+async function refreshWizardSummaryValidateGate() {
+    const validateName = String(currentWizard?.summary?.validateQueryName || '').trim();
+    const summaryQueryName = String(currentWizard?.summary?.queryName || '').trim();
+    if (!validateName && !summaryQueryName) return true;
+    wizardSummaryCanExecute = false;
+    syncFormExecutionLockState();
+    try {
+        const [previewData, validateData] = await Promise.all([
+            summaryQueryName ? fetchNamedQueryPreview(summaryQueryName) : Promise.resolve(null),
+            validateName ? fetchNamedQueryPreview(validateName) : Promise.resolve(null),
+        ]);
+        applyWizardSummaryExecuteGate(previewData, validateData);
+    } catch (err) {
+        wizardSummaryCanExecute = false;
+        wizardSummaryGateMessage = err?.message || 'Falha na validação.';
+        syncFormExecutionLockState();
+    }
+    return wizardSummaryCanExecute === true;
+}
+
 async function handleExecute() {
     if (isFormExecutionBusy()) return;
+    if (isWizardModule() && isOnWizardSummaryStep() && wizardSummaryHasExecuteGate()) {
+        const allowed = await refreshWizardSummaryValidateGate();
+        if (!allowed) {
+            const gateText = wizardSummaryGateMessage
+                ? interpolateTemplate(
+                    wizardSummaryGateMessage,
+                    collectFormValues(true),
+                    getKnownFormFieldNames()
+                )
+                : 'A validação do resumo não permite executar.';
+            showToast('Execução bloqueada', gateText, 'warning');
+            return;
+        }
+    }
     const finishOk = await drainStaticMessages('finish', undefined, { allowCancel: true });
     if (!finishOk) return;
     if (isWizardModule()) {
         if (!validateWizardStepAt(wizardStepIndex)) return;
-        if (isOnWizardSummaryStep() && wizardSummaryCanExecute === false) {
+        if (isWizardSummaryExecuteBlocked()) {
             const gateText = wizardSummaryGateMessage
                 ? interpolateTemplate(
                     wizardSummaryGateMessage,

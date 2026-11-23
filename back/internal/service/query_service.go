@@ -230,7 +230,61 @@ func (s *queryService) ExecuteQuery(ctx context.Context, basePath, queryPath, ki
 	return result, sql, status.String(), err
 }
 
+func (s *queryService) runWizardNamedQuery(ctx context.Context, parser *engine.SQLParser, expanded, resolvedKind, queryName string, payload map[string]interface{}, defaultDriver, defaultDsn string) (domain.QueryResult, error) {
+	querySQL, ok := parser.NamedQuerySQL(queryName)
+	if !ok || strings.TrimSpace(querySQL) == "" {
+		return domain.QueryResult{}, fmt.Errorf("QUERY %q não encontrado no módulo", queryName)
+	}
+	finalSQL := engine.InjectNamedQueryValues(expanded, querySQL, resolvedKind, payload, parser.Fields, defaultDriver)
+	work := *parser
+	result, _, err := s.runPreparedSQL(ctx, &work, finalSQL, payload, defaultDriver, defaultDsn)
+	if err != nil {
+		return domain.QueryResult{}, fmt.Errorf("QUERY %s: %w", queryName, err)
+	}
+	return result, nil
+}
+
+func wizardResultBlockMessage(result domain.QueryResult, fallback string) string {
+	if len(result.Messages) > 0 && strings.TrimSpace(result.Messages[0].Message) != "" {
+		return strings.TrimSpace(result.Messages[0].Message)
+	}
+	return fallback
+}
+
+func (s *queryService) enforceWizardSummaryGates(ctx context.Context, parser *engine.SQLParser, expanded, resolvedKind string, payload map[string]interface{}, defaultDriver, defaultDsn string) error {
+	if parser == nil || !parser.WizardSummary || resolvedKind != modulekind.KindSQL {
+		return nil
+	}
+	if name := strings.TrimSpace(parser.WizardSummaryValidateQuery); name != "" {
+		result, err := s.runWizardNamedQuery(ctx, parser, expanded, resolvedKind, name, payload, defaultDriver, defaultDsn)
+		if err != nil {
+			return err
+		}
+		if result.CanExecute == nil || !*result.CanExecute {
+			return fmt.Errorf("%s", wizardResultBlockMessage(result, "Validação não permitiu a execução."))
+		}
+	}
+	if name := strings.TrimSpace(parser.WizardSummaryQuery); name != "" {
+		result, err := s.runWizardNamedQuery(ctx, parser, expanded, resolvedKind, name, payload, defaultDriver, defaultDsn)
+		if err != nil {
+			return err
+		}
+		if result.CanExecute != nil && !*result.CanExecute {
+			return fmt.Errorf("%s", wizardResultBlockMessage(result, "Execução não permitida pelos dados do resumo."))
+		}
+		if len(result.Rows) == 0 {
+			return fmt.Errorf("%s", wizardResultBlockMessage(result, "Nenhum registro para executar."))
+		}
+	}
+	return nil
+}
+
 func (s *queryService) executeQueryBody(ctx context.Context, absPath, queryPath, resolvedKind, stepID string, wizardFinalExecute bool, expanded string, parser *engine.SQLParser, payload map[string]interface{}, defaultDriver, defaultDsn string) (domain.QueryResult, string, error) {
+	if wizardFinalExecute && parser != nil && parser.HasWizard() {
+		if err := s.enforceWizardSummaryGates(ctx, parser, expanded, resolvedKind, payload, defaultDriver, defaultDsn); err != nil {
+			return domain.QueryResult{}, "", err
+		}
+	}
 	if resolvedKind != modulekind.KindSQL {
 		if parser.HasWizard() {
 			result, debugArtifact, runErr := engine.RunScriptStep(ctx, absPath, resolvedKind, parser, payload, stepID, expanded)

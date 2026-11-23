@@ -67,7 +67,7 @@ func parseCanExecuteValue(raw string) *bool {
 		return nil
 	}
 	switch s {
-	case "s", "y", "1", "true", "sim", "yes":
+	case "s", "y", "1", "true", "sim", "yes", "ok":
 		t := true
 		return &t
 	case "n", "0", "false", "nao", "não", "no":
@@ -131,8 +131,14 @@ func ApplyResultProtocol(result domain.QueryResult) domain.QueryResult {
 		if len(out.Rows) > 0 {
 			if execCol := firstMatchingCol(keys, protocolCanExecuteCols); execCol != "" {
 				canExecute = parseCanExecuteValue(formatCell(out.Rows[0][execCol]))
+				if canExecute == nil {
+					// Column present but not an allow value (S/Y/1/true): block.
+					f := false
+					canExecute = &f
+				}
+			} else {
+				canExecute = inferCanExecuteFromMessageColumn(keys, out.Rows[0], canExecute)
 			}
-			canExecute = inferCanExecuteFromMessageColumn(keys, out.Rows[0], canExecute)
 		}
 		removeCols := protocolColumnsToRemove(keys)
 		newCols := make([]string, 0, len(out.Columns))

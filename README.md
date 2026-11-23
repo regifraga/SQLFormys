@@ -338,7 +338,15 @@ Variables assigned in step SQL (for example `@MSG`) are returned in the result s
 
 The guided UI and step execution run **only** when the script contains a `--<WIZARD>` … `--</WIZARD>` block. `STEP` blocks alone do **not** enable the wizard (those modules keep a single form and **Executar**).
 
-Define order and labels inside `--<WIZARD>` (if omitted, steps follow file order and use the step id as label):
+Define order and labels inside `--<WIZARD>` (if omitted, steps follow file order and use the step id as label).
+
+To hide only the step progress area (“Etapa X de Y” and the step circles)—**not** the step-by-step flow—add **`NO-STEPPER`** on the opening tag (aliases: `HIDE-STEPPER`, `HIDE-STEP-AREA`, or `UI=NO-STEPPER`). The same flag may appear as its own comment line inside the block (`-- NO-STEPPER`). Keep every `STEP …` line: omitting them or breaking the `<WIZARD>…</WIZARD>` block disables guided mode and shows all fields at once. Navigation still uses **Anterior** / **Próximo** in the footer.
+
+```sql
+--<WIZARD NO-STEPPER>
+-- STEP ListarValores: Lista de valores
+--</WIZARD>
+```
 
 ```sql
 --<STEP ListarValores>
@@ -405,7 +413,7 @@ Optional `DS_MESSAGE` / `__MESSAGE` with an explicit flag still explains why exe
 -- SUMMARY VALIDATE(PodeExecutar)
 ```
 
-If there is no `VALIDATE` query, the UI may read `IC_EXECUTE` from the summary preview query only; when that column is absent, **Executar** stays enabled (backward compatible).
+If there is no `VALIDATE` query, the UI may read `IC_EXECUTE` from the summary preview query only. A **`SUMMARY QUERY` with zero rows** blocks **Executar** (banner *Nenhum registro para executar*), even when `VALIDATE` would allow. When the preview query has rows and no execute flag, **Executar** stays enabled (backward compatible).
 
 **Wizard messages** (inside `--<WIZARD>`), same modal style:
 

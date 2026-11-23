@@ -31,6 +31,7 @@ type SQLParser struct {
 	ResultTypeQueryRef  string // from --RESULT_TYPE=GRID QUERY(Name)
 	Steps         []StepDefinition
 	WizardEnabled   bool   // true only when --<WIZARD> ... --</WIZARD> is present
+	WizardHideStepper    bool // --<WIZARD NO-STEPPER> hides step progress UI
 	WizardSummary        bool     // true when WIZARD block contains SUMMARY directive
 	WizardSummaryLabel   string
 	WizardSummaryFields  []string // empty = show all visible wizard fields
@@ -489,6 +490,9 @@ func ParseMetadataForKind(content, kind string) (*SQLParser, error) {
 			}
 		}
 		if parser.WizardEnabled {
+			if attrs, body, ok := wizardBlockMatch(content, d.linePrefix); ok {
+				parser.WizardHideStepper = parseWizardUISettings(attrs, body, d.linePrefix)
+			}
 			summaryOn, summaryLabel, summaryFields, summaryQuery, summaryValidate, sumErr := parseWizardSummary(content, d.linePrefix)
 			if sumErr != nil {
 				return nil, sumErr
