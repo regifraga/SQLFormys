@@ -1,6 +1,6 @@
-# Guia de Testes da API (SQL Dynamic Engine)
+# Guia de Testes da API
 
-Este documento contém os exemplos de requisições `cURL` para você testar os endpoints do motor dinâmico de execução de queries da aplicação **SQLFormys**.
+Este documento contém exemplos de requisições `cURL` para testar os endpoints da API **SQLFormys** (módulos `.sql`, `.sh` e `.ps1`: formulários, wizards e execução).
 
 > [!NOTE]
 > Todos os testes assumem que o backend está rodando localmente na porta padrão `8080` (comando `go run cmd/api/main.go` a partir da pasta `back`). Lembre-se de utilizar a rota base `/api/queries/` (no plural).
